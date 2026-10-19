@@ -1,0 +1,30 @@
+AgroSprayer - koncowki i ciecz / model cisnieniowy
+
+INSTALACJA
+To pelny projekt. Rozpakuj i otworz AgroSprayer.ino z folderu AgroSprayer. Szczegoly instalacji w README.txt.
+
+OBSLUGA
+Ustawienia -> KONCOWKI I CIECZ lub przycisk profilu na gorze ekranu glownego.
+KONCOWKA: przelacza 11003 / 04RSM.
+CIECZ: WODA / RSM 28 / RSM 30 / RSM 32 / WLASNA.
+Dotknij wydatku, gestosci lub liczby koncowek, aby wpisac nowa wartosc.
+ZAPISZ zapisuje do pamieci ESP32. COFNIJ ZMIANY przywraca ostatni zapis. Wyjscie z panelu odrzuca niezapisane zmiany.
+Domyslnie: 11003, WODA, 5/8/8/8/8/5 koncowek. Dla nawozu wybierz 04RSM oraz odpowiedni RSM i zapisz.
+Wydatek kalibracyjny dotyczy zawsze WODY przy 3 bar, na JEDNA koncowke. Domyslnie 11003=1.18 L/min, 04RSM=1.54 L/min. Pomiaru RSM nie wpisuj w to pole.
+Zmiana gestosci recznie ustawia profil WLASNA. RSM 28/30/32: 1.28/1.30/1.32 kg/L. Przeplyw = wydatek wody / sqrt(gestosc wzgledem wody). To uwzglednia gestosc jeden raz.
+
+LICZENIE
+Tabele wody sa z przeslanych zdjec; interpolacja kwadratu wydatku, osobna korekta kalibracji kazdego profilu. 11003 zakres tabeli 2-4 bar; 04RSM 2-6 bar. Obecny czujnik 80 psi ma zakres ok. 5.5 bar; wyzszy cel jest oznaczony jako poza zakresem.
+Przy cisnieniu 0-0.1 bar wydatek wynosi zero. Pomiedzy 0.1 a 2 bar lub powyzej tabeli obliczenie jest niewazne. Nie ekstrapolujemy dawki poza tabele.
+Wartosci dawki, wydatku, zuzycia i pozostalej cieczy sa OBLICZONE z cisnienia i komend sekcji, nie sa pomiarem wyplywu z dysz. Zakladaja otwarcie sekcji zgodne z komendami i sprawne dysze. Wymagaja kalibracji wydatku i pomiaru cisnienia reprezentatywnego dla koncowek.
+Brak aktualnych danych sekcji AOG, blad czujnika lub cisnienie poza tabela wstrzymuja zliczanie. Dane AOG starsze niz 1.5 s sa niewazne. Przerwy petli powyzej 2 s sa pomijane. Symulacja nie zuzywa rzeczywistego zbiornika.
+Wydatek i zuzycie przy zamknietych wszystkich sekcjach wynosza zero niezaleznie od obiegu powrotnego.
+Zliczanie zuzycia przy otwartych sekcjach dziala rowniez na postoju. Dawka L/ha wymaga predkosci i aktywnej szerokosci.
+Po aktualizacji USTAW PONOWNIE ILOSC W ZBIORNIKU i rozpocznij NOWY ZABIEG: stare liczniki impulsowe nie sa mieszane z nowym modelem. Zapis okresowy pozostaje co 60 s.
+Przeplywomierz nie jest inicjalizowany ani odczytywany w petli; jego stare pliki moga pozostac w projekcie.
+
+STEROWANIE
+Ta aktualizacja dodaje profile, edycje, obliczenia i cel cisnienia. Nie wlacza nowego automatycznego napedu zaworu. Reczne impulsy zaworu i dotychczasowa obsluga sekcji AUTO/MAN pozostaja. Model regulatora na biurku jest symulacja.
+
+WERYFIKACJA
+Kompilacja UI z rzeczywistym LVGL 9.6 na komputerze oraz testy obliczen: charakterystyki, gestosc, cisnienie zadane, liczby dysz, zapis/blad zapisu, klawiatura, liczniki, brak czujnika, timeout AOG, symulacja. To nie jest pelna kompilacja Arduino/ESP32 ani proba hydrauliczna.

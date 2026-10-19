@@ -1,0 +1,13 @@
+#pragma once
+bool valve_test_begin();
+bool valve_test_ready();
+void valve_test_arm();
+void valve_test_stop(); // Stops and disarms.
+bool valve_test_pulse(int direction); // +1 or -1; never queues or extends a pulse.
+bool valve_test_armed();
+int valve_test_direction();
+
+// Direct operator command: one 250 ms pulse, no queue and no extension.
+bool valve_manual_pulse(int direction); // +1=open, -1=close.
+int valve_open_direction();
+bool valve_toggle_open_direction(); // Stops the motor, saves the mapping.
