@@ -11,3 +11,7 @@ int valve_test_direction();
 bool valve_manual_pulse(int direction); // +1=open, -1=close.
 int valve_open_direction();
 bool valve_toggle_open_direction(); // Stops the motor, saves the mapping.
+
+// Small automatic feedback pulse, mapped through operator-tested valve polarity.
+// Maximum 250 ms. No queue; the watchdog still stops the output.
+bool valve_auto_pulse(int logicalDirection, uint32_t milliseconds);
