@@ -11,3 +11,12 @@ To komplet zrodel odpowiadajacy podgladowi z profilami koncowek, nie plik BIN. N
 Automatyczne poruszanie zaworem wedlug cisnienia nie jest wdrozone. AUTO sekcji to osobna funkcja.
 ENA mostka L298N utrzymuj przy GND podczas uruchamiania, resetowania i wgrywania. Dopiero po starcie programu wlacz naped do recznej proby.
 Szczegoly modelu i obslugi: INSTRUKCJA.txt.
+
+POPRAWKI STABILNOSCI (2026-10-19)
+- Zachowano ten sam interfejs LVGL 9.6 i dotychczasowe nazwy plikow.
+- Przeplywomierz nadal NIE JEST uzywany do dawki, przeplywu ani zuzycia.
+- AgOpenGPS jest uznawany za polaczony dopiero po otrzymaniu prawidlowego pakietu.
+- Po utracie Wi-Fi gniazdo UDP jest zamykane i uruchamiane ponownie po powrocie polaczenia.
+- Przy wszystkich sekcjach OFF zuzycie i przeplyw wynosza 0, nawet gdy lacznosc AOG jest chwilowo niedostepna.
+- Nie podlaczono automatycznego sterowania silnikiem - przed wdrozeniem musi byc sprawdzona hydrauliczna zaleznosc ruchu zaworu i cisnienia, z awaryjnym odcieciem zasilania napedu.
+- Program nadal wymaga kompilacji w Arduino IDE i proby na urzadzeniu, zanim bedzie wykorzystywany do oprysku.
