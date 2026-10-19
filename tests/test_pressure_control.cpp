@@ -2,6 +2,7 @@
 #include <cassert>
 #include <cstring>
 #include <iostream>
+#include <limits>
 using agroreg::Controller;
 using agroreg::Input;
 static Input good() {
@@ -57,9 +58,10 @@ int main() {
     {
         Controller c;c.arm(in);
         in.sectionsOpen=false;
+        in.targetBar=std::numeric_limits<float>::quiet_NaN();
         auto a=c.step(in);
         test(a.stopMotor && a.direction==0 && c.armed(),"headland: stop without disarming");
-        in.sectionsOpen=true;in.now+=1000;
+        in.sectionsOpen=true;in.targetBar=3.0f;in.now+=1000;
         test(c.step(in).direction==-1,"resume when sections reopen");
     }
     in=good();in.pressureBar=3.5f;
