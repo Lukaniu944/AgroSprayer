@@ -95,12 +95,18 @@ static void parse(uint8_t *p, int n) {
 void aog_update() {
     gState.wifiOk = WiFi.status() == WL_CONNECTED;
 
+    // A UDP socket from the old WLAN lease is not a valid connection.
+    // Reopen it and recompute the broadcast address after reconnection.
+    if (!gState.wifiOk && udpStarted) {
+        udp.stop();
+        udpStarted = false;
+    }
     if (gState.wifiOk && !udpStarted) {
         updateBroadcast();
         udpStarted = udp.begin(AOG_RX_PORT) == 1;
     }
 
-    gState.udpOk = udpStarted;
+    gState.udpOk = gState.wifiOk && udpStarted;
     if (modeReset && !gState.autoMode) modeReset = false;
     if (modeReset && resetSent && (uint32_t)(millis()-resetStartMs)>=MODE_RESET_MS) {
         modeReset = false;
@@ -118,7 +124,10 @@ void aog_update() {
     }
 
     uint32_t now = millis();
-    gState.aogOk = (now - gState.lastAogMs) <= AOG_TIMEOUT_MS;
+    // Never show AOG as connected during the first 1.5 s after boot:
+    // require at least one real PGN239 packet and a fresh timestamp.
+    gState.aogOk = gState.udpOk && gState.rxPackets > 0 &&
+                   (uint32_t)(now - gState.lastAogMs) <= AOG_TIMEOUT_MS;
 
     if (bench_test_active()) {
         pendingTx = false;
