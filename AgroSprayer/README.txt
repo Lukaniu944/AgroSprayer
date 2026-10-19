@@ -8,7 +8,7 @@ PELNY PROJEKT AgroSprayer - profil cisnieniowy 11003 / 04RSM
 6. Po wgraniu wybierz koncowki i ciecz, ustaw ponownie zbiornik oraz rozpocznij nowy zabieg.
 
 To komplet zrodel odpowiadajacy podgladowi z profilami koncowek, nie plik BIN. Nie wykonano pelnej kompilacji Arduino/ESP32 w tej sesji.
-Automatyczne poruszanie zaworem wedlug cisnienia nie jest wdrozone. AUTO sekcji to osobna funkcja.
+Automatyczna regulacja cisnienia jest dostepna WYŁĄCZNIE po recznym uzbrojeniu w Ustawienia -> CISNIENIE / REGULATOR -> AUTO REG: WLACZ. Domyslnie po restarcie jest wylaczona. AUTO sekcji to osobna funkcja. Przed uzyciem regulatora sprawdz zachowanie zaworu: OTWORZ obejscie powinno obnizac cisnienie, a ZAMKNIJ podnosic. Potwierdz na biurku dzialanie STOP oraz krancowek.
 ENA mostka L298N utrzymuj przy GND podczas uruchamiania, resetowania i wgrywania. Dopiero po starcie programu wlacz naped do recznej proby.
 Szczegoly modelu i obslugi: INSTRUKCJA.txt.
 
