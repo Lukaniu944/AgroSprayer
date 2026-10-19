@@ -59,8 +59,8 @@ void nozzle_update(){
     const bool fresh=gState.aogOk&&gState.rxPackets>0&&(uint32_t)(now-gState.lastAogMs)<=AOG_TIMEOUT_MS;
     float q=0;reading=false;
     if(bench_test_active())status="SYMULACJA";
-    else if(!fresh)status="BRAK DANYCH SEKCJI";
     else if(!count){reading=true;status="SEKCJE WYLACZONE";}
+    else if(!fresh)status="BRAK DANYCH SEKCJI";
     else if(!pressure_sensor_valid())status="BRAK CZUJNIKA";
     else {float one=nozzle_flow(pressure_sensor_bar_x10()/10.0f,ns);
         if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
