@@ -328,7 +328,7 @@ static void manual_valve_cb(lv_event_t *e)
     valve_manual_pulse((int)(intptr_t)lv_event_get_user_data(e));
     ui_update();
 }
-static void manual_valve_stop_cb(lv_event_t *) { valve_test_stop();ui_update(); }
+static void manual_valve_stop_cb(lv_event_t *) { auto_regulator_stop();valve_test_stop();ui_update(); }
 
 static void section_cb(lv_event_t *e)
 {
@@ -1970,6 +1970,8 @@ void ui_create()
 
 static void release_detail_editors()
 {
+    // Navigating away from a panel must never re-energize the motor.
+    auto_regulator_stop();
     close_quick_input();
     if(nozzlePanel)lv_obj_delete(nozzlePanel);
     nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;for(auto &v:nozzleValues)v=nullptr;
@@ -2461,6 +2463,7 @@ static void regulator_save_cb(lv_event_t *) {
 static void regulator_back_cb(lv_event_t *) {release_detail_editors();create_valve_test();}
 static void regulator_open_cb(lv_event_t *) {
     if(bench_test_active())return;
+    auto_regulator_stop();
     release_detail_editors();create_regulator_settings();
 }
 static void create_regulator_settings() {
@@ -2493,6 +2496,8 @@ static void valve_auto_toggle_cb(lv_event_t *) {
 }
 static void create_valve_test()
 {
+    // The manual diagnostic screen takes control only after automatic mode is OFF.
+    auto_regulator_stop();
     valve_test_stop();
     valvePanel = panel(settingsDetailPanel, 12, 12, 952, 396, C_ORANGE());
     valveStatus = label(valvePanel, "TEST ZABLOKOWANY", 24, 18, C_ORANGE());
