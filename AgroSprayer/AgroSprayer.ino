@@ -6,7 +6,7 @@
 #include "lcd_driver.h"
 #include "gt911.h"
 #include "lvgl_port.h"
-#include "flowmeter.h"
+// Flowmeter is deliberately not used: dose/consumption come from pressure and nozzle curves.
 #include "pressure_sensor.h"
 #include "valve_test.h"
 #include "esp_log.h"
