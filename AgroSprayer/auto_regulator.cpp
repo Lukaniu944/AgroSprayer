@@ -14,7 +14,7 @@ agroreg::Controller controller;
 std::atomic<bool> requestToggle{false};
 std::atomic<bool> requestStop{false};
 std::atomic<bool> enabled{false};
-const char *shownStatus = "WYLACZONY";
+std::atomic<const char *> shownStatus{"WYLACZONY"};
 
 agroreg::Input snapshot() {
     agroreg::Input s;
@@ -39,12 +39,13 @@ agroreg::Input snapshot() {
 }
 }
 bool auto_regulator_armed() { return enabled.load(std::memory_order_acquire); }
-const char *auto_regulator_status() { return shownStatus; }
+const char *auto_regulator_status() { return shownStatus.load(std::memory_order_acquire); }
 
 void auto_regulator_toggle_request() {
     requestToggle.store(true,std::memory_order_release);
 }
 void auto_regulator_stop() {
+    requestToggle.store(false,std::memory_order_release);
     requestStop.store(true,std::memory_order_release);
     enabled.store(false,std::memory_order_release);
     valve_test_stop();
@@ -52,7 +53,7 @@ void auto_regulator_stop() {
 void auto_regulator_update() {
     if (requestStop.exchange(false,std::memory_order_acq_rel)) {
         controller.disarm();
-        shownStatus=controller.status();
+        shownStatus.store(controller.status(),std::memory_order_release);
     }
     if (requestToggle.exchange(false,std::memory_order_acq_rel)) {
         if (controller.armed()) {
@@ -72,5 +73,5 @@ void auto_regulator_update() {
         }
     }
     enabled.store(controller.armed(),std::memory_order_release);
-    shownStatus=controller.status();
+    shownStatus.store(controller.status(),std::memory_order_release);
 }
