@@ -38,13 +38,18 @@ class Controller {
         status_ = reason;
         expectedSign_ = unanswered_ = 0;
     }
-    bool valid(const Input &in) const {
+    bool validBasic(const Input &in) const {
         return in.autoMode && in.connected && in.sensorValid &&
                in.driverReady && !in.benchMode &&
                std::isfinite(in.pressureBar) && in.pressureBar >= 0.5f &&
-               in.pressureBar < 5.0f &&
-               std::isfinite(in.targetBar) && in.targetBar >= 2.0f &&
+               in.pressureBar < 5.0f;
+    }
+    bool validTarget(const Input &in) const {
+        return std::isfinite(in.targetBar) && in.targetBar >= 2.0f &&
                in.targetBar <= 4.8f;
+    }
+    bool valid(const Input &in) const {
+        return validBasic(in) && validTarget(in);
     }
 public:
     bool armed() const { return armed_; }
@@ -79,7 +84,7 @@ public:
             return out;
         }
         lastTick_ = in.now;
-        if (!valid(in)) {
+        if (!validBasic(in)) {
             fault("STOP: AOG / CZUJNIK / TRYB / CISNIENIE");
             out.stopMotor = true;
             return out;
@@ -89,6 +94,11 @@ public:
             status_ = "CZEKAM NA SEKCJE";
             lastPulse_ = 0;
             expectedSign_ = unanswered_ = 0;
+            out.stopMotor = true;
+            return out;
+        }
+        if (!validTarget(in)) {
+            fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
         }
