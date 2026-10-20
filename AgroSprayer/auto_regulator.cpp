@@ -52,6 +52,8 @@ void auto_regulator_stop() {
     valve_test_stop();
 }
 void auto_regulator_update() {
+    // Capture the STOP epoch before processing; stale pulses are rejected by the driver.
+    const uint32_t generation = valve_auto_generation();
     if (requestStop.exchange(false,std::memory_order_acq_rel)) {
         controller.disarm();
         shownStatus.store(controller.status(),std::memory_order_release);
@@ -68,9 +70,14 @@ void auto_regulator_update() {
     const agroreg::Action a=controller.step(s);
     if (a.stopMotor) valve_test_stop();
     if (a.direction) {
-        if (!valve_auto_pulse(a.direction,a.pulseMs)) {
-            controller.driverFailed();
-            valve_test_stop();
+        if (!valve_auto_pulse(a.direction,a.pulseMs,generation)) {
+            if (generation != valve_auto_generation()) {
+                // A concurrent operator STOP already disabled the outputs.
+                controller.disarm();
+            } else {
+                controller.driverFailed();
+                valve_test_stop();
+            }
         }
     }
     enabled.store(controller.armed(),std::memory_order_release);

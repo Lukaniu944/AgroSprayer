@@ -33,6 +33,9 @@ int main() {
          "manual mode permits manual valve pulse");
     test(!agrovalve::shouldStopMotorForUi(true,false,false,false),
          "stationary motor requires no redundant stop");
+    test(agrovalve::autoPulseStillValid(4u,4u),"AUTO pulse allowed without intervening STOP");
+    test(!agrovalve::autoPulseStillValid(4u,5u),"STOP invalidates pending AUTO pulse");
+    test(!agrovalve::autoPulseStillValid(UINT32_MAX,0u),"STOP generation wrap rejects stale pulse");
     auto in=good();
     {
         Controller c;
