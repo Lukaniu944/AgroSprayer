@@ -68,6 +68,31 @@ int main() {
         test(link.fresh(true,3001,3001,1500),"new PGN restores fresh link");
         test(!sections[2],"reconnect does not restore old AUTO mask");
     }
+    // After AOG loss, PGN239 alone cannot re-enable AUTO.
+    {
+        agroaog::AutoRecoveryGate gate;
+        test(!gate.permitsAuto(true,true),"AUTO blocked at boot");
+        gate.onModeSelection(true,false);
+        test(!gate.permitsAuto(true,true),"offline AUTO press cannot pre-arm");
+        gate.onModeSelection(true,true);
+        test(gate.permitsAuto(true,true),"operator AUTO on healthy link enables");
+        test(!gate.permitsAuto(false,true),"MAN never permits AUTO");
+        gate.onLinkStatus(true);
+        test(gate.permitsAuto(true,true),"fresh PGN retains acknowledgement");
+        gate.onLinkStatus(false);
+        test(!gate.permitsAuto(true,true),"AOG loss latches AUTO off");
+        gate.onLinkStatus(true);
+        test(!gate.permitsAuto(true,true),"fresh PGN cannot auto-rearm");
+        gate.onModeSelection(false,true);
+        test(!gate.permitsAuto(true,true),"MAN selection clears latch");
+        gate.onModeSelection(true,true);
+        test(gate.permitsAuto(true,true),"explicit AUTO after recovery enables");
+        gate.onLinkStatus(false);
+        gate.onModeSelection(true,false);
+        test(!gate.permitsAuto(true,true),"AUTO during outage stays blocked");
+        gate.onModeSelection(true,true);
+        test(gate.permitsAuto(true,true),"second healthy AUTO press acknowledges");
+    }
     test(!agrovalve::shouldStopMotorForUi(true,false,true,true),
          "AUTO regulator pulse survives UI refresh");
     test(agrovalve::shouldStopMotorForUi(true,false,false,true),

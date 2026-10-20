@@ -27,6 +27,21 @@ inline void enforceMachineLinkFailSafe(bool linkFresh, bool autoMode,
         for (std::size_t i = 0; i < sectionCount; ++i)
             sections[i] = false;
 }
+// A new PGN239 alone cannot re-enable AUTO after a link loss.
+// Operator must explicitly select AUTO while the machine link is fresh.
+class AutoRecoveryGate {
+    bool acknowledged_ = false;
+public:
+    void onLinkStatus(bool fresh) {
+        if (!fresh) acknowledged_ = false;
+    }
+    void onModeSelection(bool autoMode, bool fresh) {
+        acknowledged_ = autoMode && fresh;
+    }
+    bool permitsAuto(bool autoMode, bool fresh) const {
+        return autoMode && fresh && acknowledged_;
+    }
+};
 class Session {
     bool seenPacket_ = false;
 public:

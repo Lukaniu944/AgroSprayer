@@ -8,6 +8,7 @@
 
 static WiFiUDP udp;
 static agroaog::Session aogSession;
+static agroaog::AutoRecoveryGate aogRecovery;
 static IPAddress broadcastIp(255,255,255,255);
 static uint32_t lastTx = 0;
 static bool pendingTx = false;
@@ -45,6 +46,10 @@ void aog_send_switch_now() { if (!bench_test_active()) pendingTx = true; }
 void aog_send_mode_now() {
     if (bench_test_active()) return;
     // MAN immediately sends OFF masks. AUTO first clears manual overrides.
+    // Acknowledge recovery only after an explicit AUTO press on a fresh link.
+    const bool fresh = aogSession.fresh(gState.udpOk, millis(),
+                                        gState.lastAogMs, AOG_TIMEOUT_MS);
+    aogRecovery.onModeSelection(gState.autoMode, fresh);
     modeReset = gState.autoMode;
     resetSent = false;
     pendingTx = true;
@@ -55,10 +60,14 @@ static void sendSwitch() {
     if (WiFi.status() != WL_CONNECTED) return;
 
     uint8_t valid = (1u << SECTION_COUNT) - 1u;
-    const bool automatic = gState.autoMode && !modeReset;
+    const bool automatic = !modeReset &&
+        aogRecovery.permitsAuto(gState.autoMode, gState.aogOk);
+    // During AUTO link loss/recovery, transmit MAN + ALL OFF until
+    // the operator explicitly selects AUTO with a healthy AOG link.
+    const bool forceOff = gState.autoMode && !automatic;
     uint8_t autoMask = automatic ? valid : 0;
-    uint8_t onMask = modeReset || automatic ? 0 : sectionMask();
-    uint8_t offMask = modeReset ? valid : automatic ? 0 : ((~onMask) & valid);
+    uint8_t onMask = (forceOff || automatic) ? 0 : sectionMask();
+    uint8_t offMask = forceOff ? valid : automatic ? 0 : ((~onMask) & valid);
     // PGN234 Main bit2 selects maintained switch states (not edge buttons).
     // bit0 enables the AUTO master; bit1 disables it for manual control.
     const uint8_t main = 0x04 | (automatic ? 0x01 : 0x02);
@@ -87,7 +96,7 @@ static void parse(uint8_t *p, int n) {
 
     if (p[2] == 0x7F && p[3] == 0xEF) {
         gState.speedX10 = p[6];
-        if (gState.autoMode && !modeReset) {
+        if (!modeReset && aogRecovery.permitsAuto(gState.autoMode, gState.aogOk)) {
             uint8_t mask = p[11];
             for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
         }
@@ -120,6 +129,10 @@ void aog_update() {
     }
 
     gState.udpOk = gState.wifiOk && udpStarted;
+    // Check expiry before consuming queued PGN239 packets: a late
+    // packet must not hide an expired link and reopen AUTO sections.
+    aogRecovery.onLinkStatus(aogSession.fresh(gState.udpOk, millis(),
+                                             gState.lastAogMs, AOG_TIMEOUT_MS));
     if (modeReset && !gState.autoMode) modeReset = false;
     if (modeReset && resetSent && (uint32_t)(millis()-resetStartMs)>=MODE_RESET_MS) {
         modeReset = false;
@@ -141,6 +154,7 @@ void aog_update() {
     // require at least one real PGN239 packet and a fresh timestamp.
     gState.aogOk = aogSession.fresh(gState.udpOk, now,
                                     gState.lastAogMs, AOG_TIMEOUT_MS);
+    aogRecovery.onLinkStatus(gState.aogOk);
     // A UDP timeout with Wi-Fi still connected must not leave stale AUTO
     // sections open or show an old speed. Invalid PGNs never refresh this link.
     agroaog::enforceMachineLinkFailSafe(gState.aogOk, gState.autoMode,
