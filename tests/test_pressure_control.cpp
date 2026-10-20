@@ -1,6 +1,7 @@
 #include "../AgroSprayer/pressure_control_core.h"
 #include "../AgroSprayer/valve_ui_interlock.h"
 #include "../AgroSprayer/aog_link_guard.h"
+#include "../AgroSprayer/nozzle_calibration_core.h"
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -22,6 +23,23 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
+    // 04RSM calibration is specified at 3 bar (table Q3=1.78, not 1.54).
+    // Migrating old saved settings must preserve the previous flow estimate.
+    {
+        auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+        test(eq(agronozzle::calibratedWaterFlow(1.78f,1.78f,1,1.0f),1.78f),
+             "04RSM default 3-bar water flow");
+        test(eq(agronozzle::calibratedWaterFlow(1.78f,2.0f,1,1.0f),2.0f),
+             "04RSM user-entered Q3 is actual Q3");
+        test(eq(agronozzle::calibratedWaterFlow(
+                 1.78f,agronozzle::migrateLegacyRsmQ3(1.54f),1,1.0f),1.78f),
+             "legacy RSM profile preserves previous estimated flow");
+        test(eq(agronozzle::calibratedWaterFlow(1.18f,1.18f,0,1.0f),1.18f),
+             "11003 Q3 unchanged");
+        test(eq(agronozzle::calibratedWaterFlow(1.78f,1.78f,1,1.32f),
+                1.78f/std::sqrt(1.32f)),
+             "RSM density correction applied once");
+    }
     // PGN239 packet validation: corrupted packets must never affect sections.
     {
         uint8_t p[14] = {0x80,0x81,0x7F,0xEF,8,0,80,0,0,0,0,0x3F,0,0};

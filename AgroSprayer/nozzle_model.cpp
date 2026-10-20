@@ -1,4 +1,5 @@
 #include "nozzle_model.h"
+#include "nozzle_calibration_core.h"
 #include "sprayer_state.h"
 #include "pressure_sensor.h"
 #include "ui.h"
@@ -15,14 +16,26 @@ const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c31||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.magic!=0x4e5a4c32||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
     for(float q:s.waterQ3)if(!std::isfinite(q)||q<0.1f||q>5)return false;
     return true;
 }
 void nozzle_begin(){
     ns=NozzleSettings{};Preferences p;
-    if(p.begin("agronozzle",true)){NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();if(n==sizeof(s)&&validSettings(s))ns=s;}
+    if(p.begin("agronozzle",true)){
+        NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
+        if(n==sizeof(s)){
+            // V1 stored 04RSM calibration relative to the 2.5-bar table
+            // entry (1.54), although the editor specified 3 bar. Convert
+            // its value to the true 3-bar reference without changing output.
+            if(s.magic==0x4e5a4c31){
+                s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
+                s.magic=0x4e5a4c32;
+            }
+            if(validSettings(s))ns=s;
+        }
+    }
     tick=millis();liters=0;reading=previousValid=false;previousFlow=0;
 }
 bool nozzle_save(const NozzleSettings &s){
@@ -43,7 +56,7 @@ float nozzle_flow(float bar,const NozzleSettings &s){
     if(bar<ps[k][0]||bar>ps[k][4])return NAN;
     float q=qs[k][4];
     for(int i=1;i<5;i++)if(bar<=ps[k][i]){float t=(bar-ps[k][i-1])/(ps[k][i]-ps[k][i-1]);q=sqrtf(qs[k][i-1]*qs[k][i-1]+t*(qs[k][i]*qs[k][i]-qs[k][i-1]*qs[k][i-1]));break;}
-    return q*s.waterQ3[k]/(k?1.54f:1.18f)/sqrtf(s.density);
+    return agronozzle::calibratedWaterFlow(q,s.waterQ3[k],k,s.density);
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     if(!std::isfinite(total)||total<=0||count<=0)return NAN;

@@ -1,10 +1,10 @@
 #pragma once
 #include <Arduino.h>
 struct NozzleSettings {
-    uint32_t magic=0x4e5a4c31;
+    uint32_t magic=0x4e5a4c32;
     uint8_t nozzle=0, liquid=0;
     uint8_t counts[6]={5,8,8,8,8,5};
-    float waterQ3[2]={1.18f,1.54f};
+    float waterQ3[2]={1.18f,1.78f};
     float density=1.0f;
 };
 const NozzleSettings &nozzle_settings();
