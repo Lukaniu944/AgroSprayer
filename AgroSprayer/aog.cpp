@@ -2,10 +2,12 @@
 #include "config.h"
 #include "board_config.h"
 #include "sprayer_state.h"
+#include "aog_link_guard.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
 
 static WiFiUDP udp;
+static agroaog::Session aogSession;
 static IPAddress broadcastIp(255,255,255,255);
 static uint32_t lastTx = 0;
 static bool pendingTx = false;
@@ -87,6 +89,7 @@ static void parse(uint8_t *p, int n) {
             uint8_t mask = p[11];
             for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
         }
+        aogSession.packetReceived();
         gState.lastAogMs = millis();
         gState.rxPackets++;
     }
@@ -94,6 +97,14 @@ static void parse(uint8_t *p, int n) {
 
 void aog_update() {
     gState.wifiOk = WiFi.status() == WL_CONNECTED;
+    if (!gState.wifiOk) {
+        // A new Wi-Fi lease must not reuse a packet from the old UDP session.
+        aogSession.reset();
+        gState.speedX10 = 0;
+        if (gState.autoMode) {
+            for (int i = 0; i < SECTION_COUNT; ++i) gState.sections[i] = false;
+        }
+    }
 
     // A UDP socket from the old WLAN lease is not a valid connection.
     // Reopen it and recompute the broadcast address after reconnection.
@@ -102,6 +113,7 @@ void aog_update() {
         udpStarted = false;
     }
     if (gState.wifiOk && !udpStarted) {
+        aogSession.reset();
         updateBroadcast();
         udpStarted = udp.begin(AOG_RX_PORT) == 1;
     }
@@ -126,8 +138,8 @@ void aog_update() {
     uint32_t now = millis();
     // Never show AOG as connected during the first 1.5 s after boot:
     // require at least one real PGN239 packet and a fresh timestamp.
-    gState.aogOk = gState.udpOk && gState.rxPackets > 0 &&
-                   (uint32_t)(now - gState.lastAogMs) <= AOG_TIMEOUT_MS;
+    gState.aogOk = aogSession.fresh(gState.udpOk, now,
+                                    gState.lastAogMs, AOG_TIMEOUT_MS);
 
     if (bench_test_active()) {
         pendingTx = false;

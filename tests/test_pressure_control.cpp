@@ -1,5 +1,6 @@
 #include "../AgroSprayer/pressure_control_core.h"
 #include "../AgroSprayer/valve_ui_interlock.h"
+#include "../AgroSprayer/aog_link_guard.h"
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -36,6 +37,19 @@ int main() {
     test(agrovalve::autoPulseStillValid(4u,4u),"AUTO pulse allowed without intervening STOP");
     test(!agrovalve::autoPulseStillValid(4u,5u),"STOP invalidates pending AUTO pulse");
     test(!agrovalve::autoPulseStillValid(UINT32_MAX,0u),"STOP generation wrap rejects stale pulse");
+    {
+        agroaog::Session session;
+        test(!session.fresh(true,1000,995,1500),"no AOG packet since boot");
+        session.packetReceived();
+        test(session.fresh(true,1000,995,1500),"fresh packet permits AOG link");
+        test(!session.fresh(false,1000,995,1500),"UDP loss invalidates link");
+        session.reset();
+        test(!session.fresh(true,1001,995,1500),"reconnect cannot reuse old PGN");
+        session.packetReceived();
+        test(session.fresh(true,1002,1002,1500),"new PGN restores fresh session");
+        test(!session.fresh(true,3000,1002,1500),"stale PGN expires");
+        test(session.fresh(true,15,UINT32_MAX-15,1500),"millis rollover stays fresh");
+    }
     auto in=good();
     {
         Controller c;
@@ -79,6 +93,9 @@ int main() {
         Controller c;c.arm(in);c.step(in);
         in.connected=false;in.now+=50;
         test(c.step(in).stopMotor && !c.armed(),"AOG loss trips");
+        in.connected=true;in.now+=50;
+        test(c.step(in).direction==0 && !c.armed(),"AOG recovery never auto rearms");
+        test(c.arm(in),"AOG recovery requires explicit operator arm");
     }
     in=good();
     {
