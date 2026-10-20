@@ -16,6 +16,31 @@ inline bool validMachinePacket(const uint8_t* p, std::size_t n) {
         sum = static_cast<uint8_t>(sum + p[i]);
     return sum == p[13];
 }
+// PGN234 remote maintained switches. The explicit masks allow bench tests
+// to check that link recovery cannot transmit a section ON command.
+inline void makeRemoteSwitchPacket(bool autoSelected, bool autoPermitted,
+                                   bool modeReset, uint8_t manualOnMask,
+                                   uint8_t sectionCount, uint8_t (&p)[14]) {
+    const uint8_t valid = sectionCount >= 8 ? 0xFFu :
+                          static_cast<uint8_t>((1u << sectionCount) - 1u);
+    const bool automatic = autoSelected && autoPermitted && !modeReset;
+    const bool forceOff = autoSelected && !automatic;
+    const uint8_t onMask = (forceOff || automatic) ? 0 :
+                           static_cast<uint8_t>(manualOnMask & valid);
+    const uint8_t offMask = forceOff ? valid : automatic ? 0 :
+                            static_cast<uint8_t>(valid & ~onMask);
+    const uint8_t main = static_cast<uint8_t>(0x04 | (automatic ? 0x01 : 0x02));
+    const uint8_t frame[14] = {
+        0x80,0x81,0x77,0xEA,0x08,main,
+        static_cast<uint8_t>(automatic ? valid : 0),0,sectionCount,
+        onMask,offMask,0,0,0
+    };
+    for (std::size_t i=0;i<14;++i) p[i] = frame[i];
+    uint8_t sum=0;
+    for (std::size_t i=2;i<13;++i)
+        sum = static_cast<uint8_t>(sum+p[i]);
+    p[13]=sum;
+}
 // Clear stale machine telemetry when the AgOpenGPS link expires.
 // Preserve operator-selected MAN sections; AUTO sections must fail closed.
 inline void enforceMachineLinkFailSafe(bool linkFresh, bool autoMode,

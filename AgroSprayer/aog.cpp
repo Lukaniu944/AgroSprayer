@@ -24,12 +24,6 @@ static uint8_t sectionMask() {
     return m;
 }
 
-static uint8_t checksum(const uint8_t *p, int a, int b) {
-    uint16_t s=0;
-    for (int i=a;i<=b;i++) s += p[i];
-    return (uint8_t)s;
-}
-
 static void updateBroadcast() {
     IPAddress ip = WiFi.localIP();
     IPAddress mask = WiFi.subnetMask();
@@ -59,25 +53,11 @@ static void sendSwitch() {
     if (bench_test_active()) return;
     if (WiFi.status() != WL_CONNECTED) return;
 
-    uint8_t valid = (1u << SECTION_COUNT) - 1u;
-    const bool automatic = !modeReset &&
-        aogRecovery.permitsAuto(gState.autoMode, gState.aogOk);
-    // During AUTO link loss/recovery, transmit MAN + ALL OFF until
-    // the operator explicitly selects AUTO with a healthy AOG link.
-    const bool forceOff = gState.autoMode && !automatic;
-    uint8_t autoMask = automatic ? valid : 0;
-    uint8_t onMask = (forceOff || automatic) ? 0 : sectionMask();
-    uint8_t offMask = forceOff ? valid : automatic ? 0 : ((~onMask) & valid);
-    // PGN234 Main bit2 selects maintained switch states (not edge buttons).
-    // bit0 enables the AUTO master; bit1 disables it for manual control.
-    const uint8_t main = 0x04 | (automatic ? 0x01 : 0x02);
-
-    uint8_t p[14] = {
-        0x80,0x81,0x77,0xEA,0x08,
-        main, autoMask,0x00, SECTION_COUNT,
-        onMask,offMask,0x00,0x00,0x00
-    };
-    p[13] = checksum(p,2,12);
+    uint8_t p[14];
+    agroaog::makeRemoteSwitchPacket(
+        gState.autoMode,
+        aogRecovery.permitsAuto(gState.autoMode, gState.aogOk),
+        modeReset, sectionMask(), SECTION_COUNT, p);
 
     if (udp.beginPacket(broadcastIp, AOG_TX_PORT) != 1) return;
     if (udp.write(p,sizeof(p)) != sizeof(p)) { udp.endPacket(); return; }

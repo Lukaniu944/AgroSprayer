@@ -39,6 +39,44 @@ int main() {
         p[11]^=1; test(!agroaog::validMachinePacket(p,14),"bad sections"); p[11]^=1;
         test(agroaog::validMachinePacket(p,14),"PGN239 restored");
     }
+    // PGN234 must send MAN/ALL OFF while AUTO is not acknowledged.
+    // Compare the exact transmitted bytes, not a duplicated model.
+    {
+        uint8_t p[14] = {};
+        auto validCrc = [&]() {
+            uint8_t sum=0;
+            for (int i=2;i<13;++i) sum=static_cast<uint8_t>(sum+p[i]);
+            return sum == p[13];
+        };
+        agroaog::makeRemoteSwitchPacket(true,false,false,0x3F,6,p);
+        test(p[0]==0x80 && p[1]==0x81 && p[2]==0x77 &&
+             p[3]==0xEA && p[4]==8,"PGN234 header");
+        test(p[5]==0x06,"unacknowledged AUTO sends master OFF");
+        test(p[6]==0 && p[9]==0 && p[10]==0x3F,
+             "unacknowledged AUTO forces six OFF");
+        test(p[8]==6,"PGN234 section count");
+        test(validCrc(),"PGN234 blocked checksum");
+        agroaog::makeRemoteSwitchPacket(true,true,true,0x3F,6,p);
+        test(p[5]==0x06 && p[9]==0 && p[10]==0x3F,
+             "AUTO mode reset sends all OFF");
+        test(validCrc(),"PGN234 reset checksum");
+        agroaog::makeRemoteSwitchPacket(true,true,false,0x3F,6,p);
+        test(p[5]==0x05 && p[6]==0x3F && p[9]==0 && p[10]==0,
+             "acknowledged AUTO releases six sections to AOG");
+        test(validCrc(),"PGN234 AUTO checksum");
+        agroaog::makeRemoteSwitchPacket(false,false,false,0x15,6,p);
+        test(p[5]==0x06 && p[6]==0 && p[9]==0x15 && p[10]==0x2A,
+             "MAN section ON/OFF masks");
+        test(validCrc(),"PGN234 MAN checksum");
+        agroaog::makeRemoteSwitchPacket(false,false,false,0xFF,6,p);
+        test(p[9]==0x3F && p[10]==0,"unused section bits masked");
+        agroaog::makeRemoteSwitchPacket(false,false,false,0,6,p);
+        test(p[9]==0 && p[10]==0x3F,"MAN all OFF");
+        agroaog::makeRemoteSwitchPacket(true,false,false,0,6,p);
+        test(p[9]==0 && p[10]==0x3F,"AUTO recovery fails closed");
+        agroaog::makeRemoteSwitchPacket(false,true,false,0x01,6,p);
+        test(p[5]==0x06 && p[9]==0x01,"MAN cannot be overridden by AUTO latch");
+    }
     // Wi-Fi can stay connected while PGN239 stops: stale AUTO sections
     // and speed must be invalidated without changing manual overrides.
     {
