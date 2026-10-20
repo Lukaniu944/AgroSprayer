@@ -38,6 +38,28 @@ int main() {
     }
     in=good();
     {
+        Controller c;test(c.arm(in),"arm before target-reached test");
+        test(c.step(in).direction==-1,"start pressure increase before target");
+        in.now+=100;in.pressureBar=2.9f;in.motorMoving=true;
+        auto a=c.step(in);
+        test(a.stopMotor && a.direction==0 && c.armed(),
+             "stop running motor immediately when pressure enters tolerance");
+        in.now+=50;in.motorMoving=false;
+        a=c.step(in);
+        test(!a.stopMotor && a.direction==0 && c.armed(),
+             "remain at target without repeated stop or restart");
+    }
+    in=good();in.pressureBar=3.5f;
+    {
+        Controller c;test(c.arm(in),"arm before falling-pressure target test");
+        test(c.step(in).direction==1,"start pressure decrease before target");
+        in.now+=100;in.pressureBar=3.1f;in.motorMoving=true;
+        auto a=c.step(in);
+        test(a.stopMotor && a.direction==0 && c.armed(),
+             "stop running motor on target while reducing pressure");
+    }
+    in=good();
+    {
         Controller c;c.arm(in);c.step(in);
         in.connected=false;in.now+=50;
         test(c.step(in).stopMotor && !c.armed(),"AOG loss trips");

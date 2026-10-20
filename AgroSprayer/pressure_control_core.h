@@ -127,6 +127,9 @@ public:
         if (std::fabs(error) <= tolerance) {
             status_ = "W CELU";
             expectedSign_ = unanswered_ = 0;
+            // Do not finish an in-flight pulse after pressure reaches target.
+            // The motor watchdog is a fallback; stop as soon as safe pressure is seen.
+            out.stopMotor = in.motorMoving;
             return out;
         }
         if (in.motorMoving) {
