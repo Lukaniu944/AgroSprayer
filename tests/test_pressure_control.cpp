@@ -1,4 +1,5 @@
 #include "../AgroSprayer/pressure_control_core.h"
+#include "../AgroSprayer/valve_ui_interlock.h"
 #include <cassert>
 #include <cstring>
 #include <iostream>
@@ -20,6 +21,18 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
+    test(!agrovalve::shouldStopMotorForUi(true,false,true,true),
+         "AUTO regulator pulse survives UI refresh");
+    test(agrovalve::shouldStopMotorForUi(true,false,false,true),
+         "unarmed AUTO stops stray motor motion");
+    test(agrovalve::shouldStopMotorForUi(true,true,true,true),
+         "bench mode always stops motor");
+    test(agrovalve::shouldStopMotorForUi(false,true,false,true),
+         "bench mode stops manual motor");
+    test(!agrovalve::shouldStopMotorForUi(false,false,false,true),
+         "manual mode permits manual valve pulse");
+    test(!agrovalve::shouldStopMotorForUi(true,false,false,false),
+         "stationary motor requires no redundant stop");
     auto in=good();
     {
         Controller c;

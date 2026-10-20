@@ -16,6 +16,7 @@
 #include "job_counter.h"
 #include "nozzle_model.h"
 #include "auto_regulator.h"
+#include "valve_ui_interlock.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -2823,7 +2824,9 @@ void ui_update()
         lv_obj_remove_state(btnMan, LV_STATE_DISABLED);
     }
 
-    if((sprayer_display_state().autoMode || bench_test_active()) && valve_test_direction()!=0) valve_test_stop();
+    if (agrovalve::shouldStopMotorForUi(sprayer_display_state().autoMode,
+                                           bench_test_active(), auto_regulator_armed(),
+                                           valve_test_direction()!=0)) valve_test_stop();
     const bool valveDisabled=sprayer_display_state().autoMode || bench_test_active() || !valve_test_ready();
     for(lv_obj_t *b : {btnValveOpen,btnValveClose}) {
         if(lv_obj_has_state(b,LV_STATE_DISABLED)!=valveDisabled) {
