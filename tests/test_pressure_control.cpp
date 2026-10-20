@@ -259,5 +259,35 @@ int main() {
         in.now=4001;
         test(c.step(in).stopMotor && !c.armed(),"blocked loop trips");
     }
+    // Exhaustive PGN234 six-section mask regression: 64 masks x 4 modes.
+    // Tests packet encoding only; physical relay fail-safe needs a separate test.
+    {
+        uint8_t p[14] = {};
+        for (unsigned mask = 0; mask < 64; ++mask) {
+            for (unsigned mode = 0; mode < 4; ++mode) {
+                const bool selectedAuto = mode != 0;
+                const bool permittedAuto = mode >= 2;
+                const bool resetting = mode == 2;
+                agroaog::makeRemoteSwitchPacket(selectedAuto, permittedAuto,
+                                                resetting,
+                                                static_cast<uint8_t>(mask), 6, p);
+                const bool activeAuto = mode == 3;
+                const bool manual = mode == 0;
+                const uint8_t expectedOn = manual ? static_cast<uint8_t>(mask) : 0;
+                const uint8_t expectedOff = manual ?
+                    static_cast<uint8_t>(0x3Fu ^ mask) :
+                    (activeAuto ? 0 : 0x3Fu);
+                uint8_t checksum = 0;
+                for (int k = 2; k < 13; ++k)
+                    checksum = static_cast<uint8_t>(checksum + p[k]);
+                test(p[5] == (activeAuto ? 0x05 : 0x06) &&
+                     p[6] == (activeAuto ? 0x3F : 0),
+                     "PGN234 master/auto mask matrix");
+                test(p[9] == expectedOn, "PGN234 ON mask matrix");
+                test(p[10] == expectedOff, "PGN234 OFF mask matrix");
+                test(p[13] == checksum, "PGN234 checksum matrix");
+            }
+        }
+    }
     std::cout<<"OK: "<<checks<<" test assertions passed\n";
 }
