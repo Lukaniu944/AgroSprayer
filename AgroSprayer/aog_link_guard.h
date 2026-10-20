@@ -16,6 +16,17 @@ inline bool validMachinePacket(const uint8_t* p, std::size_t n) {
         sum = static_cast<uint8_t>(sum + p[i]);
     return sum == p[13];
 }
+// Clear stale machine telemetry when the AgOpenGPS link expires.
+// Preserve operator-selected MAN sections; AUTO sections must fail closed.
+inline void enforceMachineLinkFailSafe(bool linkFresh, bool autoMode,
+                                       int &speedX10, bool* sections,
+                                       std::size_t sectionCount) {
+    if (linkFresh) return;
+    speedX10 = 0;
+    if (autoMode && sections != nullptr)
+        for (std::size_t i = 0; i < sectionCount; ++i)
+            sections[i] = false;
+}
 class Session {
     bool seenPacket_ = false;
 public:

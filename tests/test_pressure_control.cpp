@@ -39,6 +39,35 @@ int main() {
         p[11]^=1; test(!agroaog::validMachinePacket(p,14),"bad sections"); p[11]^=1;
         test(agroaog::validMachinePacket(p,14),"PGN239 restored");
     }
+    // Wi-Fi can stay connected while PGN239 stops: stale AUTO sections
+    // and speed must be invalidated without changing manual overrides.
+    {
+        agroaog::Session link;
+        bool sections[6] = {true,false,true,true,false,true};
+        int speed = 80;
+        link.packetReceived();
+        agroaog::enforceMachineLinkFailSafe(link.fresh(true,1000,1000,1500),
+                                            true,speed,sections,6);
+        test(speed == 80 && sections[0] && sections[2],"fresh PGN keeps machine state");
+        agroaog::enforceMachineLinkFailSafe(link.fresh(true,2501,1000,1500),
+                                            true,speed,sections,6);
+        test(speed == 0,"AOG timeout clears speed");
+        test(!sections[0] && !sections[1] && !sections[2] &&
+             !sections[3] && !sections[4] && !sections[5],
+             "AOG timeout closes six AUTO sections");
+        speed = 90; sections[0] = true;
+        agroaog::enforceMachineLinkFailSafe(false,false,speed,sections,6);
+        test(speed == 0,"manual mode clears stale speed");
+        test(sections[0],"manual mode preserves operator sections");
+        speed = 80;
+        agroaog::enforceMachineLinkFailSafe(false,true,speed,nullptr,6);
+        test(speed == 0,"null sections pointer is safe");
+        link.reset();
+        test(!link.fresh(true,3000,3000,1500),"new UDP session requires PGN");
+        link.packetReceived();
+        test(link.fresh(true,3001,3001,1500),"new PGN restores fresh link");
+        test(!sections[2],"reconnect does not restore old AUTO mask");
+    }
     test(!agrovalve::shouldStopMotorForUi(true,false,true,true),
          "AUTO regulator pulse survives UI refresh");
     test(agrovalve::shouldStopMotorForUi(true,false,false,true),

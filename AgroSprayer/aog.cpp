@@ -102,10 +102,9 @@ void aog_update() {
     if (!gState.wifiOk) {
         // A new Wi-Fi lease must not reuse a packet from the old UDP session.
         aogSession.reset();
-        gState.speedX10 = 0;
-        if (gState.autoMode) {
-            for (int i = 0; i < SECTION_COUNT; ++i) gState.sections[i] = false;
-        }
+        agroaog::enforceMachineLinkFailSafe(false, gState.autoMode,
+                                            gState.speedX10, gState.sections,
+                                            SECTION_COUNT);
     }
 
     // A UDP socket from the old WLAN lease is not a valid connection.
@@ -142,6 +141,11 @@ void aog_update() {
     // require at least one real PGN239 packet and a fresh timestamp.
     gState.aogOk = aogSession.fresh(gState.udpOk, now,
                                     gState.lastAogMs, AOG_TIMEOUT_MS);
+    // A UDP timeout with Wi-Fi still connected must not leave stale AUTO
+    // sections open or show an old speed. Invalid PGNs never refresh this link.
+    agroaog::enforceMachineLinkFailSafe(gState.aogOk, gState.autoMode,
+                                        gState.speedX10, gState.sections,
+                                        SECTION_COUNT);
 
     if (bench_test_active()) {
         pendingTx = false;
