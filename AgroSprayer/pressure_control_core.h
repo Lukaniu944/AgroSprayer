@@ -29,6 +29,8 @@ struct Action {
 };
 class Controller {
     bool armed_ = false;
+    bool resumePending_ = false, resumeDelay_ = false;
+    uint32_t resumedAt_ = 0;
     uint32_t lastTick_ = 0, lastPulse_ = 0;
     float pressureBefore_ = 0;
     int expectedSign_ = 0, unanswered_ = 0;
@@ -63,6 +65,8 @@ public:
         armed_ = true;
         lastTick_ = in.now;
         lastPulse_ = 0;
+        resumePending_ = resumeDelay_ = false;
+        resumedAt_ = 0;
         pressureBefore_ = 0;
         expectedSign_ = unanswered_ = 0;
         status_ = "GOTOWY";
@@ -70,7 +74,8 @@ public:
     }
     void disarm() {
         armed_ = false;
-        lastTick_ = lastPulse_ = 0;
+        lastTick_ = lastPulse_ = resumedAt_ = 0;
+        resumePending_ = resumeDelay_ = false;
         expectedSign_ = unanswered_ = 0;
         status_ = "WYLACZONY";
     }
@@ -92,6 +97,8 @@ public:
         if (!in.sectionsOpen || in.speedX10 <= 0) {
             // Keep arming over headland closures, but never move the motor.
             status_ = "CZEKAM NA SEKCJE";
+            resumePending_ = true;
+            resumeDelay_ = false;
             lastPulse_ = 0;
             expectedSign_ = unanswered_ = 0;
             out.stopMotor = true;
@@ -101,6 +108,18 @@ public:
             fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
+        }
+        if (resumePending_) {
+            resumePending_ = false;
+            resumeDelay_ = true;
+            resumedAt_ = in.now;
+        }
+        if (resumeDelay_) {
+            if ((uint32_t)(in.now - resumedAt_) < 150) {
+                status_ = "PRZERWA PO SEKCJACH";
+                return out;
+            }
+            resumeDelay_ = false;
         }
         const float error = in.targetBar - in.pressureBar;
         const float tolerance = std::fmax(0.15f,

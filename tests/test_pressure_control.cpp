@@ -62,7 +62,11 @@ int main() {
         auto a=c.step(in);
         test(a.stopMotor && a.direction==0 && c.armed(),"headland: stop without disarming");
         in.sectionsOpen=true;in.targetBar=3.0f;in.now+=1000;
-        test(c.step(in).direction==-1,"resume when sections reopen");
+        test(c.step(in).direction==0,"reopened sections wait for driver lockout");
+        in.now+=90;
+        test(c.step(in).direction==0,"no early motor pulse after reopen");
+        in.now+=70;
+        test(c.step(in).direction==-1,"resume after 150 ms motor lockout");
     }
     in=good();in.pressureBar=3.5f;
     {
