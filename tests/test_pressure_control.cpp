@@ -22,6 +22,23 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
+    // PGN239 packet validation: corrupted packets must never affect sections.
+    {
+        uint8_t p[14] = {0x80,0x81,0x7F,0xEF,8,0,80,0,0,0,0,0x3F,0,0};
+        for (int k=2; k<13; ++k) p[13] = static_cast<uint8_t>(p[13]+p[k]);
+        test(agroaog::validMachinePacket(p,14),"valid PGN239");
+        test(!agroaog::validMachinePacket(nullptr,14),"null PGN239");
+        test(!agroaog::validMachinePacket(p,13),"truncated PGN239");
+        test(!agroaog::validMachinePacket(p,15),"extended PGN239");
+        p[0]^=1; test(!agroaog::validMachinePacket(p,14),"bad preamble"); p[0]^=1;
+        p[2]^=1; test(!agroaog::validMachinePacket(p,14),"bad sender"); p[2]^=1;
+        p[3]^=1; test(!agroaog::validMachinePacket(p,14),"bad PGN"); p[3]^=1;
+        p[4]=7; test(!agroaog::validMachinePacket(p,14),"bad payload length"); p[4]=8;
+        p[13]^=1; test(!agroaog::validMachinePacket(p,14),"bad checksum"); p[13]^=1;
+        p[6]^=1; test(!agroaog::validMachinePacket(p,14),"bad speed"); p[6]^=1;
+        p[11]^=1; test(!agroaog::validMachinePacket(p,14),"bad sections"); p[11]^=1;
+        test(agroaog::validMachinePacket(p,14),"PGN239 restored");
+    }
     test(!agrovalve::shouldStopMotorForUi(true,false,true,true),
          "AUTO regulator pulse survives UI refresh");
     test(agrovalve::shouldStopMotorForUi(true,false,false,true),

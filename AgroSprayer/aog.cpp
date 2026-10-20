@@ -81,7 +81,9 @@ static void sendSwitch() {
 }
 
 static void parse(uint8_t *p, int n) {
-    if (n < 12 || p[0] != 0x80 || p[1] != 0x81) return;
+    // Reject malformed/truncated PGN239 before updating speed, sections
+    // or link freshness. Other PGNs are ignored by this parser.
+    if (n < 0 || !agroaog::validMachinePacket(p, static_cast<size_t>(n))) return;
 
     if (p[2] == 0x7F && p[3] == 0xEF) {
         gState.speedX10 = p[6];
