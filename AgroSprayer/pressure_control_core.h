@@ -94,18 +94,21 @@ public:
             out.stopMotor = true;
             return out;
         }
-        if (!validTarget(in)) {
-            fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
-            out.stopMotor = true;
-            return out;
-        }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
-            // Keep arming over headland closures, but never move the motor.
+            // An undefined target is normal when every section is closed or
+            // the tractor is stationary. Pause safely without a motor pulse;
+            // keep link, sensor and pressure faults fatal (checked above).
             status_ = "CZEKAM NA SEKCJE";
             resumePending_ = true;
             resumeDelay_ = false;
             lastPulse_ = 0;
             expectedSign_ = unanswered_ = 0;
+            out.stopMotor = true;
+            return out;
+        }
+        if (!validTarget(in)) {
+            // Once spraying resumes, an invalid target is always a fault.
+            fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
         }
