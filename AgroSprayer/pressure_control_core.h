@@ -94,6 +94,11 @@ public:
             out.stopMotor = true;
             return out;
         }
+        if (!validTarget(in)) {
+            fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
+            out.stopMotor = true;
+            return out;
+        }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
             // Keep arming over headland closures, but never move the motor.
             status_ = "CZEKAM NA SEKCJE";
@@ -101,11 +106,6 @@ public:
             resumeDelay_ = false;
             lastPulse_ = 0;
             expectedSign_ = unanswered_ = 0;
-            out.stopMotor = true;
-            return out;
-        }
-        if (!validTarget(in)) {
-            fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
         }

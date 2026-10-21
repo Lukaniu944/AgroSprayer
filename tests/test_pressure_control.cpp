@@ -242,8 +242,20 @@ int main() {
         in.sectionsOpen=false;
         in.targetBar=std::numeric_limits<float>::quiet_NaN();
         auto a=c.step(in);
-        test(a.stopMotor && a.direction==0 && c.armed(),"headland: stop without disarming");
+        test(a.stopMotor && a.direction==0 && !c.armed(),
+             "invalid target while sections closed stops and disarms");
         in.sectionsOpen=true;in.targetBar=3.0f;in.now+=1000;
+        test(c.step(in).direction==0 && !c.armed(),
+             "valid target after fault cannot automatically rearm");
+    }
+    in=good();
+    {
+        Controller c;c.arm(in);
+        in.sectionsOpen=false;
+        auto a=c.step(in);
+        test(a.stopMotor && a.direction==0 && c.armed(),
+             "headland with valid target stops without disarming");
+        in.sectionsOpen=true;in.now+=1000;
         test(c.step(in).direction==0,"reopened sections wait for driver lockout");
         in.now+=90;
         test(c.step(in).direction==0,"no early motor pulse after reopen");
