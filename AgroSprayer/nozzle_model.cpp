@@ -16,9 +16,9 @@ const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c32||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.magic!=0x4e5a4c33||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
-    for(float q:s.waterQ3)if(!std::isfinite(q)||q<0.1f||q>5)return false;
+    for(int k=0;k<2;k++){const float q=s.waterQ3[k];if(!std::isfinite(q)||q<(k==1?0.08f:0.1f)||q>5)return false;}
     return true;
 }
 void nozzle_begin(){
@@ -26,12 +26,15 @@ void nozzle_begin(){
     if(p.begin("agronozzle",true)){
         NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
         if(n==sizeof(s)){
-            // V1 stored 04RSM calibration relative to the 2.5-bar table
-            // entry (1.54), although the editor specified 3 bar. Convert
-            // its value to the true 3-bar reference without changing output.
+            // The 04RSM table is 1.54 l/min at 3 bar (1.78 at 4 bar).
+            // V1 already used the 1.54 reference. V2 used 1.78; rescale
+            // its saved Q3 to V3 without changing estimated flow or dose.
             if(s.magic==0x4e5a4c31){
                 s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
-                s.magic=0x4e5a4c32;
+                s.magic=0x4e5a4c33;
+            } else if(s.magic==0x4e5a4c32){
+                s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
+                s.magic=0x4e5a4c33;
             }
             if(validSettings(s))ns=s;
         }
