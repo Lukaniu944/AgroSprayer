@@ -59,10 +59,19 @@ float nozzle_flow(float bar,const NozzleSettings &s){
     return agronozzle::calibratedWaterFlow(q,s.waterQ3[k],k,s.density);
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
-    if(!std::isfinite(total)||total<=0||count<=0)return NAN;
-    float low=2,high=s.nozzle?6:4,q=total/count;
-    if(q<nozzle_flow(low,s)||q>nozzle_flow(high,s))return NAN;
-    for(int i=0;i<24;i++){float mid=(low+high)/2;if(nozzle_flow(mid,s)<q)low=mid;else high=mid;}
+    if(!validSettings(s)||!std::isfinite(total)||total<=0||count<=0)return NAN;
+    const float lowBar=2.0f,highBar=s.nozzle?6.0f:4.0f;
+    float low=lowBar,high=highBar,q=total/count;
+    const float minFlow=nozzle_flow(low,s),maxFlow=nozzle_flow(high,s);
+    if(!std::isfinite(q)||!std::isfinite(minFlow)||!std::isfinite(maxFlow))return NAN;
+    const float epsilon=maxFlow*1.0e-6f;
+    if(q<minFlow)return minFlow-q<=epsilon?lowBar:NAN;
+    if(q>maxFlow)return q-maxFlow<=epsilon?highBar:NAN;
+    for(int i=0;i<24;i++){
+        const float mid=(low+high)/2,flow=nozzle_flow(mid,s);
+        if(!std::isfinite(flow))return NAN;
+        if(flow<q)low=mid;else high=mid;
+    }
     return (low+high)/2;
 }
 float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
