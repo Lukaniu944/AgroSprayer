@@ -17,6 +17,7 @@
 
 static esp_lcd_panel_handle_t panel = nullptr;
 static uint32_t lastUi = 0;
+static uint32_t lastModel = 0;
 // GPIO43/44 are now L298N controls; do not send runtime logs on UART0.
 static int discard_runtime_log(const char *, va_list) { return 0; }
 
@@ -54,11 +55,21 @@ void loop() {
     pressure_sensor_update();
     auto_regulator_update();
 
-    uint32_t now=millis();
-    if(now-lastUi>=200){
-        lastUi=now;
-        if(lvgl_lock(100)){
-            ui_update();
+    const uint32_t now = millis();
+    const bool modelDue = (uint32_t)(now - lastModel) >= 100;
+    const bool screenDue = (uint32_t)(now - lastUi) >= 200;
+    if (modelDue || screenDue) {
+        // Protect model/UI callbacks with the existing LVGL mutex.
+        // Model sampling is scheduled independently of visual refresh.
+        if (lvgl_lock(100)) {
+            if (modelDue) {
+                lastModel = now;
+                ui_update_model();
+            }
+            if (screenDue) {
+                lastUi = now;
+                ui_update();
+            }
             lvgl_unlock();
         }
     }

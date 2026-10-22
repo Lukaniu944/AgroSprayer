@@ -2520,12 +2520,17 @@ static void create_valve_test()
     valve_refresh();
 }
 
-void ui_update()
+void ui_update_model()
 {
+    // No widget updates here. Run at 100 ms, even if visual refresh is not due.
     nozzle_update();
     bench_test_tick();
     tank_counter_update();
     job_counter_update();
+}
+
+void ui_update()
+{
     job_refresh();
     info_refresh();
     char buf[96];
