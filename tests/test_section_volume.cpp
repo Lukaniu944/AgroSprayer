@@ -1,4 +1,5 @@
 #include "../AgroSprayer/section_volume_core.h"
+#include "../AgroSprayer/aog_link_guard.h"
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -12,6 +13,14 @@ int main() {
         ++checks;
     };
     auto near = [](double a, double b) { return std::fabs(a - b) < 1e-8; };
+    agroaog::TelemetryGapLatch gap;
+    check(!gap.take(), "telemetry gap latch starts clear");
+    gap.note();
+    gap.note();
+    check(gap.take(), "brief repeated AOG losses remain latched");
+    check(!gap.take(), "telemetry gap consumed exactly once");
+    gap.note();
+    check(gap.take(), "telemetry gap rearmed after recovery");
     agrovolume::SectionEventLatch latch;
     uint32_t event = 0;
     check(!latch.take(event), "empty event latch");
@@ -102,6 +111,20 @@ int main() {
     v.sample(UINT32_MAX - 500u, 0x3f, 60.0f, true, 80, 21.0f);
     v.sample(499u, 0x3f, 60.0f, true, 80, 21.0f);
     check(near(v.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0), "area handles millis rollover");
+    // AOG link disappears at 1040 and returns at 1060 between 100 ms model ticks.
+    // No consumption or area may be invented for the uncertain 1000..1100 interval.
+    v.reset();
+    v.sample(1000u, 0x3f, 49.56f, true, 80, 21.0f);
+    gap.note();
+    check(gap.take(), "20ms observed Wi-Fi dropout survives until model tick");
+    v.sample(1100u, 0x3f, 0.0f, false, 80, 21.0f);
+    v.sample(1100u, 0x3f, 49.56f, true, 80, 21.0f);
+    check(near(v.liters(), 0.0) && near(v.hectares(), 0.0) && v.sprayMs() == 0,
+          "no estimated liters area or spray time across observed AOG gap");
+    v.sample(1200u, 0x3f, 49.56f, true, 80, 21.0f);
+    check(near(v.liters(), 49.56 / 600.0), "estimated liters resume after AOG recovery");
+    check(near(v.hectares(), 80.0 * 21.0 * 100.0 / 360000000.0),
+          "estimated hectares resume after AOG recovery");
     v.reset();
     check(near(v.hectares(), 0.0) && near(v.areaLiters(), 0.0) && v.sprayMs() == 0,
           "reset clears area and spray time");

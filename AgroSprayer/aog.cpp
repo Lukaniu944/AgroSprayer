@@ -10,6 +10,8 @@
 static WiFiUDP udp;
 static agroaog::Session aogSession;
 static agroaog::AutoRecoveryGate aogRecovery;
+static agroaog::TelemetryGapLatch telemetryGap;
+bool aog_take_telemetry_gap() { return telemetryGap.take(); }
 static IPAddress broadcastIp(255,255,255,255);
 static uint32_t lastTx = 0;
 static bool pendingTx = false;
@@ -89,6 +91,7 @@ static void parse(uint8_t *p, int n) {
 }
 
 void aog_update() {
+    const bool previouslyFresh = gState.aogOk;
     gState.wifiOk = WiFi.status() == WL_CONNECTED;
     if (!gState.wifiOk) {
         // A new Wi-Fi lease must not reuse a packet from the old UDP session.
@@ -113,8 +116,10 @@ void aog_update() {
     gState.udpOk = gState.wifiOk && udpStarted;
     // Check expiry before consuming queued PGN239 packets: a late
     // packet must not hide an expired link and reopen AUTO sections.
-    aogRecovery.onLinkStatus(aogSession.fresh(gState.udpOk, millis(),
-                                             gState.lastAogMs, AOG_TIMEOUT_MS));
+    const bool freshBeforeReceive = aogSession.fresh(gState.udpOk, millis(),
+                                                    gState.lastAogMs, AOG_TIMEOUT_MS);
+    if (previouslyFresh && !freshBeforeReceive) telemetryGap.note();
+    aogRecovery.onLinkStatus(freshBeforeReceive);
     if (modeReset && !gState.autoMode) modeReset = false;
     if (modeReset && resetSent && (uint32_t)(millis()-resetStartMs)>=MODE_RESET_MS) {
         modeReset = false;
@@ -137,6 +142,7 @@ void aog_update() {
     gState.aogOk = aogSession.fresh(gState.udpOk, now,
                                     gState.lastAogMs, AOG_TIMEOUT_MS);
     aogRecovery.onLinkStatus(gState.aogOk);
+    if (previouslyFresh && !gState.aogOk) telemetryGap.note();
     // A UDP timeout with Wi-Fi still connected must not leave stale AUTO
     // sections open or show an old speed. Invalid PGNs never refresh this link.
     agroaog::enforceMachineLinkFailSafe(gState.aogOk, gState.autoMode,

@@ -3,8 +3,18 @@
 // Pure C++ so reconnection behaviour can be tested without ESP32 hardware.
 #include <cstdint>
 #include <cstddef>
+#include <atomic>
 
 namespace agroaog {
+// Sticky event: even a brief observed link loss must invalidate the
+// entire uncertain accounting interval. Thread-safe across model/UI tasks.
+class TelemetryGapLatch {
+    std::atomic<bool> pending_{false};
+public:
+    void note() { pending_.store(true, std::memory_order_release); }
+    bool take() { return pending_.exchange(false, std::memory_order_acq_rel); }
+};
+
 // PGN239 (machine data) is exactly 14 bytes: 5-byte header,
 // 8-byte payload and 1-byte additive checksum over bytes 2..12.
 inline bool validMachinePacket(const uint8_t* p, std::size_t n) {

@@ -1,4 +1,5 @@
 #include "nozzle_model.h"
+#include "aog.h"
 #include "nozzle_calibration_core.h"
 #include "section_volume_core.h"
 #include "sprayer_state.h"
@@ -108,7 +109,13 @@ void nozzle_update(){
     // Settle the last known flow only up to the first timestamped transition.
     // Never extrapolate through stale AOG or invalid pressure readings.
     uint32_t eventMs = 0;
-    if (sectionEventLatch.take(eventMs)) {
+    const bool hadSectionEvent = sectionEventLatch.take(eventMs);
+    // An observed AOG dropout invalidates the complete unsampled interval,
+    // even when a fresh packet arrived before this model tick. Do not settle
+    // any queued section transition across an uncertain telemetry gap.
+    if (aog_take_telemetry_gap()) {
+        volumeIntegrator.sample(now, mask, 0.0f, false);
+    } else if (hadSectionEvent) {
         volumeIntegrator.settleBeforeSectionChange(
             eventMs, !bench_test_active() && fresh && pressure_sensor_valid());
     }
