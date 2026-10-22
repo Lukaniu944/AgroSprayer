@@ -1,16 +1,19 @@
 #include "nozzle_model.h"
 #include "nozzle_calibration_core.h"
+#include "section_volume_core.h"
 #include "sprayer_state.h"
 #include "pressure_sensor.h"
 #include "ui.h"
 #include <Preferences.h>
 #include <cmath>
 static NozzleSettings ns;
-static bool reading=false,previousValid=false;
-static double liters=0;
-static float previousFlow=0;
-static uint32_t tick=0;
-static uint8_t previousMask=0;
+static bool reading=false;
+static agrovolume::SectionVolumeIntegrator volumeIntegrator;
+static uint8_t liveSectionMask() {
+    uint8_t mask=0;
+    for(int i=0;i<SECTION_COUNT;i++) if(gState.sections[i]) mask|=static_cast<uint8_t>(1u<<i);
+    return mask;
+}
 static const char *status="BRAK CZUJNIKA";
 const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
@@ -39,14 +42,17 @@ void nozzle_begin(){
             if(validSettings(s))ns=s;
         }
     }
-    tick=millis();liters=0;reading=previousValid=false;previousFlow=0;
+    volumeIntegrator.reset();reading=false;
 }
 bool nozzle_save(const NozzleSettings &s){
     if(bench_test_active()||!validSettings(s))return false;
     // Settle old-profile consumption before changing calibration.
     nozzle_update();Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
-    ns=s;previousValid=false;reading=false;return true;
+    ns=s;
+    // The old profile was settled above; do not blend its flow with the new one.
+    volumeIntegrator.sample(millis(),liveSectionMask(),0.0f,false);
+    reading=false;return true;
 }
 // User-supplied water tables. Interpolate squared flow vs pressure, then
 // apply per-profile water calibration and density exactly once.
@@ -79,8 +85,9 @@ float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
 }
 float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
 void nozzle_update(){
-    const uint32_t now=millis(),dt=now-tick;tick=now;
-    uint8_t mask=0;int count=0;for(int i=0;i<6;i++)if(gState.sections[i]){mask|=1<<i;count+=ns.counts[i];}
+    const uint32_t now=millis();
+    const uint8_t mask=liveSectionMask();
+    int count=0;for(int i=0;i<SECTION_COUNT;i++)if(gState.sections[i])count+=ns.counts[i];
     const bool fresh=gState.aogOk&&gState.rxPackets>0&&(uint32_t)(now-gState.lastAogMs)<=AOG_TIMEOUT_MS;
     float q=0;reading=false;
     if(bench_test_active())status="SYMULACJA";
@@ -91,10 +98,11 @@ void nozzle_update(){
         if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
         else status="CISNIENIE POZA TABELA";
     }
-    if(reading&&previousValid&&mask==previousMask&&dt<=2000)liters+=(previousFlow+q)*0.5*dt/60000.0;
-    previousFlow=q;previousValid=reading;previousMask=mask;
+    // Native-tested integration. Unknown section transition timestamps still
+    // invalidate the affected interval until timestamped events are wired in.
+    volumeIntegrator.sample(now,mask,q,reading);
     gState.actualFlowX10=reading?(int)lroundf(q*10):0;
 }
 bool nozzle_reading_valid(){return reading;}
-double nozzle_total_liters(){return liters;}
+double nozzle_total_liters(){return volumeIntegrator.liters();}
 const char *nozzle_status(){return status;}
