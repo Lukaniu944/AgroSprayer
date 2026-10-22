@@ -1,11 +1,37 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <atomic>
 
-// Native-testable accounting core. Not yet wired into the firmware.
+// Native-testable accounting core used by firmware.
+// Timestamped section transitions come from local button/UDP receive time;
+// they estimate command changes, not measured physical valve motion.
 // Call settleBeforeSectionChange at the actual, timestamped mask transition,
 // then sample() immediately with the new mask and its estimated total flow.
 namespace agrovolume {
+// Preserve the earliest section-change timestamp until the next model tick.
+// Further transitions in that interval are deliberately not extrapolated.
+// UINT32_MAX is reserved as empty; an event at that exact millisecond is
+// conservatively rounded back by 1 ms, including across millis() rollover.
+class SectionEventLatch {
+public:
+    void note(uint32_t eventMs) {
+        if (eventMs == UINT32_MAX) eventMs = UINT32_MAX - 1u;
+        uint32_t empty = UINT32_MAX;
+        firstMs_.compare_exchange_strong(empty, eventMs,
+                                          std::memory_order_release,
+                                          std::memory_order_relaxed);
+    }
+    bool take(uint32_t &eventMs) {
+        const uint32_t value = firstMs_.exchange(UINT32_MAX, std::memory_order_acq_rel);
+        if (value == UINT32_MAX) return false;
+        eventMs = value;
+        return true;
+    }
+private:
+    std::atomic<uint32_t> firstMs_{UINT32_MAX};
+};
+
 class SectionVolumeIntegrator {
 public:
     void reset() { primed_ = false; lastValid_ = false; totalLiters_ = 0; }

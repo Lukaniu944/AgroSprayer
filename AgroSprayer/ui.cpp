@@ -304,6 +304,12 @@ static void auto_cb(lv_event_t *)
     if (bench_test_active()) return;
     auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = true;
     prevSectionStateValid=false;
@@ -345,6 +351,7 @@ static void section_cb(lv_event_t *e)
         return;
     }
 
+    nozzle_section_change_at(millis());
     sprayer_display_state().sections[i] = !sprayer_display_state().sections[i];
 
     // Natychmiastowa reakcja wizualna - bez czekania na ui_update().
@@ -408,6 +415,8 @@ static void all_cb(lv_event_t *)
         }
     }
 
+    // All-on or all-off changes at least one section.
+    nozzle_section_change_at(millis());
     for (int i = 0; i < SECTION_COUNT; i++) {
         sprayer_display_state().sections[i] = anyOff;
 

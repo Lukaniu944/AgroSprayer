@@ -9,6 +9,10 @@
 static NozzleSettings ns;
 static bool reading=false;
 static agrovolume::SectionVolumeIntegrator volumeIntegrator;
+static agrovolume::SectionEventLatch sectionEventLatch;
+void nozzle_section_change_at(uint32_t eventMs) {
+    if (!bench_test_active()) sectionEventLatch.note(eventMs);
+}
 static uint8_t liveSectionMask() {
     uint8_t mask=0;
     for(int i=0;i<SECTION_COUNT;i++) if(gState.sections[i]) mask|=static_cast<uint8_t>(1u<<i);
@@ -42,7 +46,10 @@ void nozzle_begin(){
             if(validSettings(s))ns=s;
         }
     }
-    volumeIntegrator.reset();reading=false;
+    volumeIntegrator.reset();
+    uint32_t unusedEventMs = 0;
+    sectionEventLatch.take(unusedEventMs);
+    reading=false;
 }
 bool nozzle_save(const NozzleSettings &s){
     if(bench_test_active()||!validSettings(s))return false;
@@ -98,8 +105,13 @@ void nozzle_update(){
         if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
         else status="CISNIENIE POZA TABELA";
     }
-    // Native-tested integration. Unknown section transition timestamps still
-    // invalidate the affected interval until timestamped events are wired in.
+    // Settle the last known flow only up to the first timestamped transition.
+    // Never extrapolate through stale AOG or invalid pressure readings.
+    uint32_t eventMs = 0;
+    if (sectionEventLatch.take(eventMs)) {
+        volumeIntegrator.settleBeforeSectionChange(
+            eventMs, !bench_test_active() && fresh && pressure_sensor_valid());
+    }
     volumeIntegrator.sample(now,mask,q,reading);
     gState.actualFlowX10=reading?(int)lroundf(q*10):0;
 }

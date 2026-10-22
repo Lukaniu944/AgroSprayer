@@ -13,6 +13,8 @@ bool nozzle_save(const NozzleSettings &settings);
 float nozzle_flow(float bar,const NozzleSettings &settings);
 float nozzle_target_pressure(float totalLpm,int count,const NozzleSettings &settings);
 void nozzle_update();
+// Notify before changing any live section; eventMs is millis() at command receipt.
+void nozzle_section_change_at(uint32_t eventMs);
 bool nozzle_reading_valid();
 double nozzle_total_liters();
 const char *nozzle_name();

@@ -12,6 +12,17 @@ int main() {
         ++checks;
     };
     auto near = [](double a, double b) { return std::fabs(a - b) < 1e-8; };
+    agrovolume::SectionEventLatch latch;
+    uint32_t event = 0;
+    check(!latch.take(event), "empty event latch");
+    latch.note(1200u);
+    latch.note(1300u);
+    check(latch.take(event) && event == 1200u, "first transition wins");
+    check(!latch.take(event), "event consumed exactly once");
+    latch.note(UINT32_MAX);
+    check(latch.take(event) && event == UINT32_MAX - 1u, "wrap sentinel handled");
+    latch.note(1500u);
+    check(latch.take(event) && event == 1500u, "latch rearmed");
     agrovolume::SectionVolumeIntegrator v;
     v.sample(1000, 0x3f, 60.0f, true);
     check(near(v.liters(), 0), "first sample is baseline");

@@ -2,6 +2,7 @@
 #include "config.h"
 #include "board_config.h"
 #include "sprayer_state.h"
+#include "nozzle_model.h"
 #include "aog_link_guard.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -77,7 +78,8 @@ static void parse(uint8_t *p, int n) {
     if (p[2] == 0x7F && p[3] == 0xEF) {
         gState.speedX10 = p[6];
         if (!modeReset && aogRecovery.permitsAuto(gState.autoMode, gState.aogOk)) {
-            uint8_t mask = p[11];
+            const uint8_t mask = p[11] & 0x3Fu;
+            if (mask != sectionMask()) nozzle_section_change_at(millis());
             for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
         }
         aogSession.packetReceived();
