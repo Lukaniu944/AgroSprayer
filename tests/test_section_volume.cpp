@@ -1,0 +1,49 @@
+#include "../AgroSprayer/section_volume_core.h"
+#include <cmath>
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <cstdlib>
+
+int main() {
+    int checks = 0;
+    auto check = [&](bool ok, const char *name) {
+        if (!ok) { std::cerr << "FAIL: " << name << '\n'; std::abort(); }
+        ++checks;
+    };
+    auto near = [](double a, double b) { return std::fabs(a - b) < 1e-8; };
+    agrovolume::SectionVolumeIntegrator v;
+    v.sample(1000, 0x3f, 60.0f, true);
+    check(near(v.liters(), 0), "first sample is baseline");
+    v.sample(2000, 0x3f, 60.0f, true);
+    check(near(v.liters(), 1.0), "one liter per second at 60 lpm");
+    v.settleBeforeSectionChange(2500, true);
+    check(near(v.liters(), 1.5), "old section mask settled to event timestamp");
+    v.sample(2500, 0x1f, 30.0f, true);
+    check(near(v.liters(), 1.5), "new mask at event does not double count");
+    v.sample(3500, 0x1f, 30.0f, true);
+    check(near(v.liters(), 2.0), "new mask integrated from event");
+    v.sample(3700, 0x0f, 20.0f, true);
+    check(near(v.liters(), 2.0), "unknown section transition never invents liters");
+    v.sample(4700, 0x0f, 20.0f, true);
+    check(near(v.liters(), 2.0 + 1.0 / 3.0), "normal sampling resumes after transition");
+    v.sample(4800, 0x0f, NAN, true);
+    check(near(v.liters(), 2.0 + 1.0 / 3.0), "invalid pressure estimate does not integrate");
+    v.sample(4900, 0x0f, 20.0f, true);
+    check(near(v.liters(), 2.0 + 1.0 / 3.0), "first valid reading rebaselines");
+    v.sample(8000, 0x0f, 20.0f, true);
+    check(near(v.liters(), 2.0 + 1.0 / 3.0), "long scheduling gap not extrapolated");
+    v.reset();
+    check(near(v.liters(), 0), "reset clears total");
+    v.sample(UINT32_MAX - 500u, 0x3f, 60.0f, true);
+    v.sample(499u, 0x3f, 60.0f, true);
+    check(near(v.liters(), 1.0), "millis rollover integrates 1000 ms");
+    v.settleBeforeSectionChange(999u, false);
+    check(near(v.liters(), 1.0), "invalid sensor at event blocks estimate");
+    v.sample(999u, 0x00, 0.0f, true);
+    v.sample(1999u, 0x00, 0.0f, true);
+    check(near(v.liters(), 1.0), "all sections off produces zero flow");
+    v.sample(1999u, 0x00, -1.0f, true);
+    check(near(v.liters(), 1.0), "negative flow invalidated");
+    std::cout << "OK: " << checks << " section volume assertions passed\n";
+}

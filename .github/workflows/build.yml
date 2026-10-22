@@ -1,7 +1,7 @@
 name: AgroSprayer checks
 on:
   push:
-    branches: [auto-regulator-bez-przeplywomierza]
+    branches: [auto-regulator-bez-przeplywomierza, fix/sekcje-restart-150ms]
   pull_request:
   workflow_dispatch:
 
@@ -14,6 +14,10 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_control.cpp -o /tmp/agrosprayer-pressure-test
           /tmp/agrosprayer-pressure-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-test
+          /tmp/agrosprayer-section-volume-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-ubsan
+          /tmp/agrosprayer-section-volume-ubsan
 
   esp32-build:
     runs-on: ubuntu-latest
