@@ -228,6 +228,37 @@ int main() {
         in.now=799u;
         test(c.step(in).direction==-1,"rollover lockout expires at 1000 ms");
     }
+    // The emitted minimum pulse is 50 ms even if configuration requests 0 ms.
+    // Lockout must use the emitted duration, not the raw configuration.
+    in=good(); in.now=100; in.pulseMs=0; in.pauseMs=0;
+    {
+        Controller c;
+        test(c.arm(in),"arm before minimum pulse lockout test");
+        auto first=c.step(in);
+        test(first.direction!=0 && first.pulseMs==50,
+             "configured zero pulse is emitted as 50 ms");
+        in.now=149;
+        auto blocked=c.step(in);
+        test(blocked.direction==0 && !blocked.stopMotor,
+             "minimum pulse lockout blocks before 50 ms");
+        in.now=150;
+        auto next=c.step(in);
+        test(next.direction!=0 && next.pulseMs==50,
+             "minimum pulse lockout expires at 50 ms");
+    }
+    // A corrupt maximum pause plus pulse must not wrap a 32-bit cooldown.
+    // Keep elapsed time below the 2 s loop watchdog to isolate the lockout.
+    in=good(); in.now=100; in.pulseMs=250; in.pauseMs=UINT32_MAX;
+    {
+        Controller c;
+        test(c.arm(in),"arm before maximum pause overflow test");
+        test(c.step(in).direction!=0,"first pulse before maximum pause");
+        in.now=400;
+        auto blocked=c.step(in);
+        test(blocked.direction==0 && !blocked.stopMotor &&
+             std::strcmp(c.status(),"PRZERWA PO IMPULSIE")==0,
+             "maximum pause cannot overflow and bypass cooldown");
+    }
     in=good();
     {
         Controller c;test(c.arm(in),"arm before target-reached test");
