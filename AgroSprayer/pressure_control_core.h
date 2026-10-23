@@ -32,6 +32,7 @@ class Controller {
     bool resumePending_ = false, resumeDelay_ = false;
     uint32_t resumedAt_ = 0;
     uint32_t lastTick_ = 0, lastPulse_ = 0;
+    bool hasLastPulse_ = false;
     float pressureBefore_ = 0;
     int expectedSign_ = 0, unanswered_ = 0;
     const char *status_ = "WYLACZONY";
@@ -65,6 +66,7 @@ public:
         armed_ = true;
         lastTick_ = in.now;
         lastPulse_ = 0;
+        hasLastPulse_ = false;
         resumePending_ = resumeDelay_ = false;
         resumedAt_ = 0;
         pressureBefore_ = 0;
@@ -75,6 +77,7 @@ public:
     void disarm() {
         armed_ = false;
         lastTick_ = lastPulse_ = resumedAt_ = 0;
+        hasLastPulse_ = false;
         resumePending_ = resumeDelay_ = false;
         expectedSign_ = unanswered_ = 0;
         status_ = "WYLACZONY";
@@ -102,6 +105,7 @@ public:
             resumePending_ = true;
             resumeDelay_ = false;
             lastPulse_ = 0;
+            hasLastPulse_ = false;
             expectedSign_ = unanswered_ = 0;
             out.stopMotor = true;
             return out;
@@ -140,7 +144,7 @@ public:
             return out;
         }
         const uint32_t pulse = in.pulseMs < 250 ? in.pulseMs : 250;
-        if (lastPulse_ &&
+        if (hasLastPulse_ &&
             (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
             status_ = "PRZERWA PO IMPULSIE";
             return out;
@@ -168,6 +172,7 @@ public:
         out.direction = desiredSign > 0 ? -1 : 1;
         out.pulseMs = pulse >= 50 ? pulse : 50;
         lastPulse_ = in.now;
+        hasLastPulse_ = true;
         pressureBefore_ = in.pressureBar;
         expectedSign_ = desiredSign;
         status_ = desiredSign > 0 ? "PODNOSZE CISNIENIE" : "OBNIZAM CISNIENIE";

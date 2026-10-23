@@ -208,6 +208,26 @@ int main() {
         auto alarm=c.step(in);
         test(alarm.stopMotor && !c.armed(),"reverse polarity trips");
     }
+    // A pulse at millis()==0 must still start the full pulse+pause lockout.
+    in=good(); in.now=0;
+    {
+        Controller c; test(c.arm(in),"arm at millis zero");
+        test(c.step(in).direction==-1,"first pulse at millis zero");
+        in.now=999;
+        test(c.step(in).direction==0,"lockout remains active when last pulse timestamp is zero");
+        in.now=1000;
+        test(c.step(in).direction==-1,"pulse allowed exactly at cooldown boundary");
+    }
+    // The same cooldown must remain correct across the 32-bit millis rollover.
+    in=good(); in.now=UINT32_MAX-200u;
+    {
+        Controller c; test(c.arm(in),"arm before millis rollover");
+        test(c.step(in).direction==-1,"first pulse before millis rollover");
+        in.now=798u;
+        test(c.step(in).direction==0,"rollover lockout blocks at 999 ms");
+        in.now=799u;
+        test(c.step(in).direction==-1,"rollover lockout expires at 1000 ms");
+    }
     in=good();
     {
         Controller c;test(c.arm(in),"arm before target-reached test");
