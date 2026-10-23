@@ -42,4 +42,49 @@ inline float tableWaterFlow(float bar, int nozzle) {
     }
     return flows[nozzle][4];
 }
+
+/*
+ * Inverse of the same calibrated nozzle curve used by the live flow model.
+ * Returns NaN when the requested per-nozzle flow is outside the published
+ * pressure range; callers must not silently clamp an unreachable target.
+ */
+inline float targetPressureForFlow(float totalFlowLpm, int nozzleCount,
+                                   int nozzle, float waterQ3, float density) {
+    if (!std::isfinite(totalFlowLpm) || totalFlowLpm <= 0.0f ||
+        nozzleCount <= 0 || nozzle < 0 || nozzle > 1 ||
+        !std::isfinite(waterQ3) || waterQ3 <= 0.0f ||
+        !std::isfinite(density) || density <= 0.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+
+    float low = 2.0f;
+    float high = nozzle == 1 ? 6.0f : 4.0f;
+    const float requested = totalFlowLpm / static_cast<float>(nozzleCount);
+    const float minFlow = calibratedWaterFlow(tableWaterFlow(low, nozzle),
+                                               waterQ3, nozzle, density);
+    const float maxFlow = calibratedWaterFlow(tableWaterFlow(high, nozzle),
+                                               waterQ3, nozzle, density);
+    if (!std::isfinite(requested) || !std::isfinite(minFlow) ||
+        !std::isfinite(maxFlow))
+        return std::numeric_limits<float>::quiet_NaN();
+
+    const float epsilon = maxFlow * 1.0e-6f;
+    if (requested < minFlow)
+        return minFlow - requested <= epsilon ? low
+                                               : std::numeric_limits<float>::quiet_NaN();
+    if (requested > maxFlow)
+        return requested - maxFlow <= epsilon ? high
+                                               : std::numeric_limits<float>::quiet_NaN();
+
+    for (int i = 0; i < 24; ++i) {
+        const float mid = (low + high) * 0.5f;
+        const float flow = calibratedWaterFlow(tableWaterFlow(mid, nozzle),
+                                                waterQ3, nozzle, density);
+        if (!std::isfinite(flow))
+            return std::numeric_limits<float>::quiet_NaN();
+        if (flow < requested) low = mid;
+        else high = mid;
+    }
+    return (low + high) * 0.5f;
+}
+
 } // namespace agronozzle

@@ -64,5 +64,28 @@ int main() {
     check(near(agronozzle::migrateV2RsmQ3(1.78f), 1.54f),
           "V2 RSM calibration migration from 4-bar reference");
 
+
+    // Inverse pressure solver must round-trip the same curve and density model.
+    check(near(agronozzle::targetPressureForFlow(1.18f * 8.0f, 8, 0, 1.18f, 1.0f),
+               3.0f, 0.001f), "blue target-pressure round trip at 3 bar");
+    check(near(agronozzle::targetPressureForFlow(0.96f * 5.0f, 5, 0, 1.18f, 1.0f),
+               2.0f, 0.001f), "blue target-pressure lower boundary");
+    const float rsm28At4 = agronozzle::calibratedWaterFlow(1.78f, 1.54f, 1, 1.28f);
+    check(near(agronozzle::targetPressureForFlow(rsm28At4 * 8.0f, 8, 1, 1.54f, 1.28f),
+               4.0f, 0.001f), "RSM 28 target-pressure round trip at 4 bar");
+    const float rsm32At6 = agronozzle::calibratedWaterFlow(2.18f, 1.54f, 1, 1.32f);
+    check(near(agronozzle::targetPressureForFlow(rsm32At6 * 8.0f, 8, 1, 1.54f, 1.32f),
+               6.0f, 0.001f), "RSM 32 target-pressure upper boundary");
+    check(std::isnan(agronozzle::targetPressureForFlow(0.95f * 8.0f, 8, 0, 1.18f, 1.0f)),
+          "target below minimum nozzle output rejected");
+    check(std::isnan(agronozzle::targetPressureForFlow(1.40f * 8.0f, 8, 0, 1.18f, 1.0f)),
+          "target above maximum nozzle output rejected");
+    check(std::isnan(agronozzle::targetPressureForFlow(NAN, 8, 0, 1.18f, 1.0f)),
+          "NaN target flow rejected");
+    check(std::isnan(agronozzle::targetPressureForFlow(10.0f, 0, 0, 1.18f, 1.0f)),
+          "zero nozzle count rejected");
+    check(std::isnan(agronozzle::targetPressureForFlow(10.0f, 8, 1, 1.54f, NAN)),
+          "invalid liquid density rejected");
+
     std::cout << "OK: " << checks << " nozzle calibration assertions passed\n";
 }
