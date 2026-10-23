@@ -146,9 +146,18 @@ public:
             status_ = "RUCH ZAWORU";
             return out;
         }
-        const uint32_t pulse = in.pulseMs < 250 ? in.pulseMs : 250;
+        // Use the same bounded pulse duration for output and lockout.
+        // A zero/short configured pulse is emitted as 50 ms below, so the
+        // cooldown must account for those 50 ms too.
+        const uint32_t pulse = in.pulseMs < 50 ? 50 :
+                               (in.pulseMs > 250 ? 250 : in.pulseMs);
+        // Widen before adding: pulse + pause must not wrap and accidentally
+        // bypass the valve lockout for extreme/corrupt pause values.
+        const uint64_t cooldownMs = static_cast<uint64_t>(pulse) +
+                                   static_cast<uint64_t>(in.pauseMs);
         if (hasLastPulse_ &&
-            (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
+            static_cast<uint64_t>(static_cast<uint32_t>(in.now-lastPulse_)) <
+                cooldownMs) {
             status_ = "PRZERWA PO IMPULSIE";
             return out;
         }
@@ -173,7 +182,7 @@ public:
         // This motor drives the Bypass: closing raises spray pressure.
         // The existing A/B direction swap must first be checked by operator.
         out.direction = desiredSign > 0 ? -1 : 1;
-        out.pulseMs = pulse >= 50 ? pulse : 50;
+        out.pulseMs = pulse;
         lastPulse_ = in.now;
         hasLastPulse_ = true;
         pressureBefore_ = in.pressureBar;
