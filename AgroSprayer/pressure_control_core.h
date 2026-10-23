@@ -32,6 +32,7 @@ class Controller {
     bool resumePending_ = false, resumeDelay_ = false;
     uint32_t resumedAt_ = 0;
     uint32_t lastTick_ = 0, lastPulse_ = 0;
+    bool hasLastTick_ = false;
     bool hasLastPulse_ = false;
     float pressureBefore_ = 0;
     int expectedSign_ = 0, unanswered_ = 0;
@@ -65,6 +66,7 @@ public:
         }
         armed_ = true;
         lastTick_ = in.now;
+        hasLastTick_ = true;
         lastPulse_ = 0;
         hasLastPulse_ = false;
         resumePending_ = resumeDelay_ = false;
@@ -77,6 +79,7 @@ public:
     void disarm() {
         armed_ = false;
         lastTick_ = lastPulse_ = resumedAt_ = 0;
+        hasLastTick_ = false;
         hasLastPulse_ = false;
         resumePending_ = resumeDelay_ = false;
         expectedSign_ = unanswered_ = 0;
@@ -86,7 +89,7 @@ public:
     Action step(const Input &in) {
         Action out;
         if (!armed_) return out;
-        if (lastTick_ && (uint32_t)(in.now-lastTick_) > 2000) {
+        if (hasLastTick_ && (uint32_t)(in.now-lastTick_) > 2000) {
             fault("PRZERWA PROGRAMU");
             out.stopMotor = true;
             return out;
