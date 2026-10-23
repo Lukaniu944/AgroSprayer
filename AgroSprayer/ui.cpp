@@ -322,6 +322,12 @@ static void man_cb(lv_event_t *)
     if (bench_test_active()) return;
     auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = false;
     prevSectionStateValid=false;
