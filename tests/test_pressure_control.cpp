@@ -328,6 +328,28 @@ int main() {
         in.now=4001;
         test(c.step(in).stopMotor && !c.armed(),"blocked loop trips");
     }
+    // The watchdog must not use timestamp zero as an "uninitialized" sentinel.
+    in=good(); in.now=0;
+    {
+        Controller c;
+        test(c.arm(in),"arm watchdog at millis zero");
+        in.now=2001;
+        auto a=c.step(in);
+        test(a.stopMotor && !c.armed() &&
+             std::strcmp(c.status(),"PRZERWA PROGRAMU")==0,
+             "loop watchdog trips after 2000 ms when last tick was zero");
+    }
+    // Unsigned elapsed-time arithmetic must also survive millis rollover.
+    in=good(); in.now=UINT32_MAX-1000u;
+    {
+        Controller c;
+        test(c.arm(in),"arm watchdog before millis rollover");
+        in.now=1000u;
+        auto a=c.step(in);
+        test(a.stopMotor && !c.armed() &&
+             std::strcmp(c.status(),"PRZERWA PROGRAMU")==0,
+             "loop watchdog trips after rollover with 2001 ms elapsed");
+    }
     // Exhaustive PGN234 six-section mask regression: 64 masks x 4 modes.
     // Tests packet encoding only; physical relay fail-safe needs a separate test.
     {
