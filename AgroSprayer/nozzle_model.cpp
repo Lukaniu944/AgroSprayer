@@ -51,8 +51,7 @@ void nozzle_begin(){
     sectionEventLatch.take(unusedEventMs);
     reading=false;
 }
-bool nozzle_save(const NozzleSettings &s){
-    if(bench_test_active()||!validSettings(s))return false;
+bool nozzle_save(const NozzleSettings &s){if(bench_test_active()||!validSettings(s))return false;
     // Settle old-profile consumption before changing calibration.
     nozzle_update();Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
@@ -61,18 +60,16 @@ bool nozzle_save(const NozzleSettings &s){
     volumeIntegrator.sample(millis(),liveSectionMask(),0.0f,false);
     reading=false;return true;
 }
-// User-supplied water tables. Interpolate squared flow vs pressure, then
-// apply per-profile water calibration and density exactly once.
+// Manufacturer tables are centralized in nozzle_calibration_core.h so native
+// tests and the ESP32 firmware exercise exactly the same pressure/flow mapping.
+// Apply the saved per-tip calibration and liquid-density correction once.
 float nozzle_flow(float bar,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(bar)||bar<0)return NAN;
     if(bar<=0.1f)return 0;
-    const float ps[2][5]={{2,2.5f,3,3.5f,4},{2,3,4,5,6}};
-    const float qs[2][5]={{.96f,1.08f,1.18f,1.27f,1.39f},{1.26f,1.54f,1.78f,1.99f,2.18f}};
-    const int k=s.nozzle;
-    if(bar<ps[k][0]||bar>ps[k][4])return NAN;
-    float q=qs[k][4];
-    for(int i=1;i<5;i++)if(bar<=ps[k][i]){float t=(bar-ps[k][i-1])/(ps[k][i]-ps[k][i-1]);q=sqrtf(qs[k][i-1]*qs[k][i-1]+t*(qs[k][i]*qs[k][i]-qs[k][i-1]*qs[k][i-1]));break;}
-    return agronozzle::calibratedWaterFlow(q,s.waterQ3[k],k,s.density);
+    const float tableFlow=agronozzle::tableWaterFlow(bar,s.nozzle);
+    if(!std::isfinite(tableFlow))return NAN;
+    return agronozzle::calibratedWaterFlow(tableFlow,s.waterQ3[s.nozzle],
+                                           s.nozzle,s.density);
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(total)||total<=0||count<=0)return NAN;
