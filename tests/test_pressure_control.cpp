@@ -338,5 +338,28 @@ int main() {
             }
         }
     }
+    // Cross-check the published RSM table against the safer AUTO control ceiling.
+    // The table can estimate 6-bar flow, but the live controller intentionally
+    // refuses targets above 4.8 bar; the installed 80-psi sensor is not a 6-bar sensor.
+    {
+        const float rsmQ6 = agronozzle::calibratedWaterFlow(2.18f, 1.54f, 1, 1.32f);
+        const float requestedAt6 = agronozzle::targetPressureForFlow(
+            rsmQ6 * 8.0f, 8, 1, 1.54f, 1.32f);
+        test(std::fabs(requestedAt6 - 6.0f) < 0.001f,
+             "RSM table can calculate the published 6-bar point");
+        auto maxAllowed = good();
+        maxAllowed.targetBar = 4.8f;
+        Controller atLimit;
+        test(atLimit.arm(maxAllowed), "AUTO accepts its configured 4.8-bar ceiling");
+        auto aboveLimit = good();
+        aboveLimit.targetBar = requestedAt6;
+        Controller above;
+        test(!above.arm(aboveLimit) && !above.armed(),
+             "6-bar RSM target is rejected by the safer AUTO controller limit");
+        aboveLimit.targetBar = 4.8001f;
+        Controller justAbove;
+        test(!justAbove.arm(aboveLimit),
+             "AUTO rejects target immediately above 4.8-bar ceiling");
+    }
     std::cout<<"OK: "<<checks<<" test assertions passed\n";
 }
