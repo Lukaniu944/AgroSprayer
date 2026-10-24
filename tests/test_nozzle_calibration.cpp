@@ -93,6 +93,20 @@ int main() {
     check(near(agronozzle::calibratedWaterFlow(1.54f, 1.54f, 1, 1.0f),
                1.54f), "04RSM default water reference at 3 bar");
 
+    // Invalid calibration inputs must not become plausible flow values.
+    check(std::isnan(agronozzle::calibratedWaterFlow(NAN, 1.18f, 0, 1.0f)),
+          "non-finite table flow rejected");
+    check(std::isnan(agronozzle::calibratedWaterFlow(1.18f, NAN, 0, 1.0f)),
+          "non-finite calibration reference rejected");
+    check(std::isnan(agronozzle::calibratedWaterFlow(1.18f, 1.18f, 2, 1.0f)),
+          "invalid nozzle index rejected by calibration");
+    check(std::isnan(agronozzle::calibratedWaterFlow(1.18f, 1.18f, 0, NAN)),
+          "non-finite density rejected by calibration");
+    check(std::isnan(agronozzle::calibratedWaterFlow(-0.1f, 1.18f, 0, 1.0f)),
+          "negative table flow rejected");
+    check(std::isnan(agronozzle::calibratedWaterFlow(1.18f, 1.18f, 0, 0.0f)),
+          "non-positive density rejected by calibration");
+
     check(near(agronozzle::migrateLegacyRsmQ3(1.54f), 1.54f),
           "legacy RSM calibration migration");
     check(near(agronozzle::migrateV2RsmQ3(1.78f), 1.54f),
