@@ -23,35 +23,36 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
-    // 04RSM table: 3 bar = 1.54 l/min; 4 bar = 1.78 l/min.
-    // Q3 is the per-tip 3-bar reference; red-table values are already RSM-specific.
-    // Preserve the estimate when migrating stored settings to V3.
+    // 04RSM table values are l/min of water. Q3 calibration is a water
+    // measurement at 3 bar; the selected RSM profile applies the published factor.
+    // Preserve the calibrated curve when migrating stored settings to V3.
     {
         auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.0f),1.54f),
-             "04RSM default Q3 matches 3-bar table");
+             "04RSM water table matches at density 1.0");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,2.0f,1,1.0f),2.0f),
-             "04RSM calibrated 3-bar reference");
+             "04RSM water Q3 calibration at 3 bar");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.54f,agronozzle::migrateLegacyRsmQ3(1.54f),1,1.0f),1.54f),
-             "V1 Q3 migration preserves estimated output");
+             "V1 Q3 migration preserves water curve");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.54f,agronozzle::migrateV2RsmQ3(1.78f),1,1.0f),1.54f),
-             "V2 default migration preserves estimated output");
+             "V2 default migration preserves water curve");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.78f,agronozzle::migrateV2RsmQ3(2.0f),1,1.0f),2.0f),
-             "V2 user calibration preserves 4-bar estimate");
+             "V2 user calibration preserves 4-bar water estimate");
         test(eq(agronozzle::calibratedWaterFlow(1.18f,1.18f,0,1.0f),1.18f),
-             "11003 Q3 unchanged");
+             "11003 water Q3 unchanged");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.32f),
-                1.54f),
-             "RSM-specific table is not density-corrected twice");
+                1.54f/1.15f, 0.001f),
+             "RSM 32 correction applied once");
         for(float q : {0.1f,0.5f,1.78f,2.0f,5.0f}) {
             for(float density : {1.0f,1.32f}) {
-                const float oldFlow=1.54f*(q/1.78f);
+                const float oldFlow=1.54f*(q/1.78f)/
+                    agronozzle::liquidCorrectionFactor(1,density);
                 const float newFlow=agronozzle::calibratedWaterFlow(
                     1.54f,agronozzle::migrateV2RsmQ3(q),1,density);
-                test(eq(oldFlow,newFlow),"V2 migration preserves RSM-table flow without duplicate correction");
+                test(eq(oldFlow,newFlow),"V2 migration preserves corrected RSM estimate");
             }
         }
     }

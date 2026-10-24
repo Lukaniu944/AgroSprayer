@@ -30,7 +30,8 @@ static bool validSettings(const NozzleSettings &s){
     return true;
 }
 // Preset liquids are authoritative: a stale/corrupt saved density must not
-// override the selected profile. Red 04RSM table values are already RSM-specific.
+// override the selected profile. The 04RSM table is water flow; RSM correction
+// is applied from the selected liquid preset when calculating live flow.
 static void normalizeLiquidDensity(NozzleSettings &s){
     if(s.liquid<4) s.density=agronozzle::presetLiquidDensity(s.liquid);
 }
@@ -39,9 +40,9 @@ void nozzle_begin(){
     if(p.begin("agronozzle",true)){
         NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
         if(n==sizeof(s)){
-            // The 04RSM table is 1.54 l/min at 3 bar (1.78 at 4 bar).
+            // The 04RSM water-flow table is 1.54 l/min at 3 bar (1.78 at 4 bar).
             // V1 already used the 1.54 reference. V2 used 1.78; rescale
-            // its saved Q3 to V3 without changing estimated flow or dose.
+            // its saved water Q3 to V3 without changing the calibrated curve.
             if(s.magic==0x4e5a4c31){
                 s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
                 s.magic=0x4e5a4c33;
@@ -73,7 +74,8 @@ bool nozzle_save(const NozzleSettings &s){
 }
 // Manufacturer tables are centralized in nozzle_calibration_core.h so native
 // tests and the ESP32 firmware exercise exactly the same pressure/flow mapping.
-// Apply per-tip calibration; the core corrects density only for the water-based blue curve.
+// Q3 calibration is a measured water flow at 3 bar. The core then applies
+// the liquid correction for the selected profile, including RSM 28/30/32.
 float nozzle_flow(float bar,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(bar)||bar<0)return NAN;
     if(bar<=0.1f)return 0;

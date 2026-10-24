@@ -37,6 +37,20 @@ inline bool validNozzleLiquidProfile(int nozzle, int liquid) {
     return false;
 }
 
+// Manufacturer correction factors for the red 04RSM water-flow table.
+// Values follow the published table: RSM 28 /1.13, RSM 30 /1.14, RSM 32 /1.15.
+// For other liquids, use the physical sqrt(relative-density) correction.
+inline float liquidCorrectionFactor(int nozzle, float density) {
+    if (nozzle < 0 || nozzle > 1 || !std::isfinite(density) || density <= 0.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    if (nozzle == 1) {
+        if (std::fabs(density - 1.28f) < 0.005f) return 1.13f;
+        if (std::fabs(density - 1.30f) < 0.005f) return 1.14f;
+        if (std::fabs(density - 1.32f) < 0.005f) return 1.15f;
+    }
+    return std::sqrt(density);
+}
+
 inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, float density) {
     // Reject invalid calibration inputs instead of propagating an impossible
     // flow estimate into the dose display or pressure-target calculation.
@@ -47,15 +61,15 @@ inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, flo
         return std::numeric_limits<float>::quiet_NaN();
 
     const float tableQ3 = nozzle == 1 ? kRsmTableQ3 : 1.18f;
-    float calibrated = tableFlow * (waterQ3 / tableQ3);
-    // The blue 11003 curve is water-based, so a custom liquid is corrected
-    // by sqrt(density). The red 04RSM values supplied for this project are
-    // already RSM flow values and must not be corrected a second time.
-    if (nozzle == 0) calibrated /= std::sqrt(density);
+    const float correction = liquidCorrectionFactor(nozzle, density);
+    if (!std::isfinite(correction) || correction <= 0.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    const float calibrated = tableFlow * (waterQ3 / tableQ3) / correction;
     return std::isfinite(calibrated) && calibrated >= 0.0f
         ? calibrated : std::numeric_limits<float>::quiet_NaN();
 }
-// Supplied manufacturer tables: blue 11003 for water, red 04RSM for RSM.
+// Manufacturer tables are published as water flow (l/min) for the selected tip.
+// RSM flow is obtained with the manufacturer's liquid correction factors.
 // Returns NaN outside each published pressure range; no extrapolation.
 inline float tableWaterFlow(float bar, int nozzle) {
     if (!std::isfinite(bar) || nozzle < 0 || nozzle > 1)
