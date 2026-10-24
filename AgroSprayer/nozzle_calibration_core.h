@@ -29,6 +29,14 @@ inline float effectiveLiquidDensity(int liquid, float customDensity) {
     return customDensity;
 }
 
+inline bool validNozzleLiquidProfile(int nozzle, int liquid) {
+    // Blue 11003 uses the water table (or a custom liquid derived from it).
+    // Red 04RSM uses the supplied RSM table; do not accept unverified pairs.
+    if (nozzle == 0) return liquid == 0 || liquid == 4;
+    if (nozzle == 1) return liquid >= 1 && liquid <= 3;
+    return false;
+}
+
 inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, float density) {
     // Reject invalid calibration inputs instead of propagating an impossible
     // flow estimate into the dose display or pressure-target calculation.
@@ -39,11 +47,15 @@ inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, flo
         return std::numeric_limits<float>::quiet_NaN();
 
     const float tableQ3 = nozzle == 1 ? kRsmTableQ3 : 1.18f;
-    const float calibrated = tableFlow * (waterQ3 / tableQ3) / std::sqrt(density);
+    float calibrated = tableFlow * (waterQ3 / tableQ3);
+    // The blue 11003 curve is water-based, so a custom liquid is corrected
+    // by sqrt(density). The red 04RSM values supplied for this project are
+    // already RSM flow values and must not be corrected a second time.
+    if (nozzle == 0) calibrated /= std::sqrt(density);
     return std::isfinite(calibrated) && calibrated >= 0.0f
         ? calibrated : std::numeric_limits<float>::quiet_NaN();
 }
-// Manufacturer water-flow tables for the blue 11003 and red 04RSM tips.
+// Supplied manufacturer tables: blue 11003 for water, red 04RSM for RSM.
 // Returns NaN outside each published pressure range; no extrapolation.
 inline float tableWaterFlow(float bar, int nozzle) {
     if (!std::isfinite(bar) || nozzle < 0 || nozzle > 1)

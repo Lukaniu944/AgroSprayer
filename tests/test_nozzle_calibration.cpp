@@ -99,20 +99,35 @@ int main() {
     check(std::isnan(agronozzle::effectiveLiquidDensity(4, 1.61f)),
           "custom liquid density above allowed range rejected");
 
-    // Liquid-density correction is sqrt(relative density): 1.13 for RSM 28,
-    // 1.14 for RSM 30, and 1.15 for RSM 32, applied to estimated liquid flow.
-    const float qWater = 1.54f;
-    const float q28 = agronozzle::calibratedWaterFlow(qWater, qWater, 1, 1.28f);
-    const float q30 = agronozzle::calibratedWaterFlow(qWater, qWater, 1, 1.30f);
-    const float q32 = agronozzle::calibratedWaterFlow(qWater, qWater, 1, 1.32f);
-    check(near(qWater / q28, 1.13f), "RSM 28 correction factor ~1.13");
-    check(near(qWater / q30, 1.14f), "RSM 30 correction factor ~1.14");
-    check(near(qWater / q32, 1.15f), "RSM 32 correction factor ~1.15");
-
+    // The supplied red 04RSM table is already RSM-specific: do not apply
+    // water-to-RSM density correction a second time for RSM 28/30/32.
+    check(near(agronozzle::calibratedWaterFlow(1.54f, 1.54f, 1, 1.28f),
+               1.54f), "RSM 28 red table used directly at 3 bar");
+    check(near(agronozzle::calibratedWaterFlow(1.54f, 1.54f, 1, 1.30f),
+               1.54f), "RSM 30 red table not density-corrected twice");
+    check(near(agronozzle::calibratedWaterFlow(1.54f, 1.54f, 1, 1.32f),
+               1.54f), "RSM 32 red table not density-corrected twice");
+    check(near(agronozzle::calibratedWaterFlow(1.78f, 1.54f, 1, 1.28f),
+               1.78f), "RSM 28 red table used directly at 4 bar");
+    check(near(agronozzle::calibratedWaterFlow(2.18f, 1.54f, 1, 1.32f),
+               2.18f), "RSM 32 red table used directly at 6 bar");
     check(near(agronozzle::calibratedWaterFlow(1.18f, 1.18f, 0, 1.0f),
                1.18f), "water 11003 default calibration at 3 bar");
-    check(near(agronozzle::calibratedWaterFlow(1.54f, 1.54f, 1, 1.0f),
-               1.54f), "04RSM default water reference at 3 bar");
+    check(near(agronozzle::calibratedWaterFlow(1.18f, 1.18f, 0, 1.28f),
+               1.18f / std::sqrt(1.28f), 0.001f),
+          "custom liquid correction applies only to water-based blue table");
+
+    check(agronozzle::validNozzleLiquidProfile(0, 0), "blue 11003 accepts water");
+    check(agronozzle::validNozzleLiquidProfile(0, 4), "blue 11003 accepts custom liquid");
+    check(!agronozzle::validNozzleLiquidProfile(0, 1), "blue 11003 rejects RSM preset");
+    check(!agronozzle::validNozzleLiquidProfile(0, 2), "blue 11003 rejects RSM 30 preset");
+    check(!agronozzle::validNozzleLiquidProfile(0, 3), "blue 11003 rejects RSM 32 preset");
+    check(agronozzle::validNozzleLiquidProfile(1, 1), "red 04RSM accepts RSM 28");
+    check(agronozzle::validNozzleLiquidProfile(1, 2), "red 04RSM accepts RSM 30");
+    check(agronozzle::validNozzleLiquidProfile(1, 3), "red 04RSM accepts RSM 32");
+    check(!agronozzle::validNozzleLiquidProfile(1, 0), "red 04RSM rejects water profile");
+    check(!agronozzle::validNozzleLiquidProfile(1, 4), "red 04RSM rejects unverified custom liquid");
+    check(!agronozzle::validNozzleLiquidProfile(2, 1), "invalid nozzle index rejected by profile guard");
 
     // Invalid calibration inputs must not become plausible flow values.
     check(std::isnan(agronozzle::calibratedWaterFlow(NAN, 1.18f, 0, 1.0f)),

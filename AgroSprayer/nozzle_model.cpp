@@ -20,16 +20,17 @@ static uint8_t liveSectionMask() {
 }
 static const char *status="BRAK CZUJNIKA";
 const NozzleSettings &nozzle_settings(){return ns;}
+bool nozzle_profile_valid(const NozzleSettings &s){return agronozzle::validNozzleLiquidProfile(s.nozzle,s.liquid);}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c33||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.magic!=0x4e5a4c33||s.nozzle>1||s.liquid>4||!agronozzle::validNozzleLiquidProfile(s.nozzle,s.liquid)||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
     for(int k=0;k<2;k++){const float q=s.waterQ3[k];if(!std::isfinite(q)||q<(k==1?0.08f:0.1f)||q>5)return false;}
     return true;
 }
 // Preset liquids are authoritative: a stale/corrupt saved density must not
-// silently disable the RSM correction. Only WLASNA uses the editable density.
+// override the selected profile. Red 04RSM table values are already RSM-specific.
 static void normalizeLiquidDensity(NozzleSettings &s){
     if(s.liquid<4) s.density=agronozzle::presetLiquidDensity(s.liquid);
 }
@@ -72,7 +73,7 @@ bool nozzle_save(const NozzleSettings &s){
 }
 // Manufacturer tables are centralized in nozzle_calibration_core.h so native
 // tests and the ESP32 firmware exercise exactly the same pressure/flow mapping.
-// Apply the saved per-tip calibration and liquid-density correction once.
+// Apply per-tip calibration; the core corrects density only for the water-based blue curve.
 float nozzle_flow(float bar,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(bar)||bar<0)return NAN;
     if(bar<=0.1f)return 0;
@@ -96,6 +97,7 @@ void nozzle_update(){
     if(bench_test_active())status="SYMULACJA";
     else if(!count){reading=true;status="SEKCJE WYLACZONE";}
     else if(!fresh)status="BRAK DANYCH SEKCJI";
+    else if(!agronozzle::validNozzleLiquidProfile(ns.nozzle,ns.liquid))status="NIEZGODNY PROFIL DYSZY/CIECZY";
     else if(!pressure_sensor_valid())status="BRAK CZUJNIKA";
     else {float one=nozzle_flow(pressure_sensor_bar_x10()/10.0f,ns);
         if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
