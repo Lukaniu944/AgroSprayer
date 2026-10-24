@@ -40,18 +40,34 @@ void nozzle_begin(){
     if(p.begin("agronozzle",true)){
         NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
         if(n==sizeof(s)){
+            bool migrated=false;
             // The 04RSM water-flow table is 1.54 l/min at 3 bar (1.78 at 4 bar).
             // V1 already used the 1.54 reference. V2 used 1.78; rescale
             // its saved water Q3 to V3 without changing the calibrated curve.
             if(s.magic==0x4e5a4c31){
                 s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
                 s.magic=0x4e5a4c33;
+                migrated=true;
             } else if(s.magic==0x4e5a4c32){
                 s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
                 s.magic=0x4e5a4c33;
+                migrated=true;
             }
             normalizeLiquidDensity(s);
-            if(validSettings(s))ns=s;
+            if(validSettings(s)){
+                ns=s;
+                // Persist a successful V1/V2 migration so every reboot starts
+                // from the same validated V3 settings instead of re-migrating
+                // the legacy blob on every boot. If NVS is temporarily read-only
+                // or unavailable, keep the validated in-RAM settings for this run.
+                if(migrated){
+                    Preferences migratedPrefs;
+                    if(migratedPrefs.begin("agronozzle",false)){
+                        migratedPrefs.putBytes("settings",&s,sizeof(s));
+                        migratedPrefs.end();
+                    }
+                }
+            }
         }
     }
     volumeIntegrator.reset();
