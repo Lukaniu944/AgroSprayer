@@ -2,7 +2,9 @@
 #include "../AgroSprayer/valve_ui_interlock.h"
 #include "../AgroSprayer/aog_link_guard.h"
 #include "../AgroSprayer/nozzle_calibration_core.h"
+#include "../AgroSprayer/pressure_sensor_math.h"
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -23,6 +25,53 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
+    // ADS1115 raw-count, divider, voltage-window and psi-to-bar conversion tests.
+    {
+        auto near = [](float a, float b, float tol = 1e-4f) {
+            return std::fabs(a - b) <= tol;
+        };
+        const float zeroRawV = agropres::sensorVoltageFromAdcRaw(2667, 1.5f);
+        test(near(zeroRawV, 0.5f, 0.001f),
+             "ADS1115 raw count converts to 0.5 V sensor output");
+        test(agropres::sensorVoltageValid(zeroRawV, 0.3f, 4.7f),
+             "valid sensor voltage accepted");
+        const float fullRawV = agropres::sensorVoltageFromAdcRaw(24000, 1.5f);
+        test(near(fullRawV, 4.5f), "ADS1115 raw count converts to 4.5 V sensor output");
+        test(agropres::sensorVoltageValid(fullRawV, 0.3f, 4.7f),
+             "full-scale sensor voltage remains in accepted diagnostic window");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(0, 1.5f), 0.3f, 4.7f),
+             "zero raw count is rejected as an implausible sensor voltage");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(32767, 1.5f), 0.3f, 4.7f),
+             "ADC value above sensor voltage window is rejected");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(-100, 1.5f), 0.3f, 4.7f),
+             "negative ADC sample is rejected");
+        test(!std::isfinite(agropres::sensorVoltageFromAdcRaw(24000, 0.0f)),
+             "invalid divider ratio cannot produce a voltage");
+        float bar = -1.0f;
+        test(agropres::sensorVoltageToBar(0.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 0.0f), "0.5 V maps to zero bar");
+        test(agropres::sensorVoltageToBar(2.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 40.0f * agropres::kPsiToBar),
+             "midpoint voltage maps to 40 psi in bar");
+        test(agropres::sensorVoltageToBar(4.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 80.0f * agropres::kPsiToBar),
+             "4.5 V maps to the 80 psi sensor ceiling");
+        test(agropres::sensorVoltageToBar(0.3f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 0.0f), "low accepted diagnostic voltage clamps to zero bar");
+        test(agropres::sensorVoltageToBar(4.7f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 80.0f * agropres::kPsiToBar),
+             "high accepted diagnostic voltage clamps to sensor ceiling");
+        test(!agropres::sensorVoltageToBar(
+                 std::numeric_limits<float>::quiet_NaN(), 0.5f, 4.5f, 80.0f, bar),
+             "NaN sensor voltage is rejected");
+        test(!agropres::sensorVoltageToBar(2.5f, 4.5f, 0.5f, 80.0f, bar),
+             "reversed calibration endpoints are rejected");
+        test(!agropres::sensorVoltageToBar(2.5f, 0.5f, 4.5f, 0.0f, bar),
+             "non-positive sensor pressure range is rejected");
+    }
     // 04RSM table values are l/min of water. Q3 calibration is a water
     // measurement at 3 bar; the selected RSM profile applies the published factor.
     // Preserve the calibrated curve when migrating stored settings to V3.
