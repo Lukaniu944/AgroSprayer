@@ -44,6 +44,40 @@ int main() {
     check(agronozzle::tableWaterFlow(2.25f, 0) < agronozzle::tableWaterFlow(2.5f, 0),
           "blue interpolation is monotonic");
 
+    // Check every published interval for both tips: interpolation must stay
+    // strictly between table nodes and remain linear in pressure-space q^2.
+    for (int nozzle = 0; nozzle < 2; ++nozzle) {
+        const float *pressures = nozzle == 0 ? bluePressure : redPressure;
+        const float *flows = nozzle == 0 ? blueFlow : redFlow;
+        for (int i = 0; i < 4; ++i) {
+            const float midPressure = (pressures[i] + pressures[i + 1]) * 0.5f;
+            const float midFlow = agronozzle::tableWaterFlow(midPressure, nozzle);
+            check(std::isfinite(midFlow) && midFlow > flows[i] &&
+                  midFlow < flows[i + 1],
+                  "midpoint interpolation remains between manufacturer nodes");
+            check(near(midFlow * midFlow,
+                       (flows[i] * flows[i] +
+                        flows[i + 1] * flows[i + 1]) * 0.5f, 0.005f),
+                  "midpoint interpolation preserves q-squared pressure relation");
+        }
+    }
+
+    // Invert every published node, not only the 3-bar reference, for both tips.
+    for (int nozzle = 0; nozzle < 2; ++nozzle) {
+        const float *pressures = nozzle == 0 ? bluePressure : redPressure;
+        const float *flows = nozzle == 0 ? blueFlow : redFlow;
+        const float q3 = flows[nozzle == 0 ? 2 : 1];
+        const float density = 1.0f;
+        for (int i = 0; i < 5; ++i) {
+            const float calibrated = agronozzle::calibratedWaterFlow(
+                flows[i], q3, nozzle, density);
+            const float recovered = agronozzle::targetPressureForFlow(
+                calibrated * 6.0f, 6, nozzle, q3, density);
+            check(near(recovered, pressures[i], 0.002f),
+                  "inverse pressure solver round-trips every table node");
+        }
+    }
+
     // Liquid-density correction is sqrt(relative density): 1.13 for RSM 28,
     // 1.14 for RSM 30, and 1.15 for RSM 32, applied to estimated liquid flow.
     const float qWater = 1.54f;
