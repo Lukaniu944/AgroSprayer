@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+#include <limits>
 
 int main() {
     int checks = 0;
@@ -176,6 +177,50 @@ int main() {
           "zero nozzle count rejected");
     check(std::isnan(agronozzle::targetPressureForFlow(10.0f, 8, 1, 1.54f, NAN)),
           "invalid liquid density rejected");
+
+
+    // Regression tests for corrupt legacy calibration values. A migration must
+    // reject invalid input and also reject a result that falls outside the
+    // supported calibration range after conversion.
+    const float nanValue = std::numeric_limits<float>::quiet_NaN();
+    const float infValue = std::numeric_limits<float>::infinity();
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(nanValue)),
+          "legacy RSM NaN input rejected");
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(infValue)),
+          "legacy RSM infinite input rejected");
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(-infValue)),
+          "legacy RSM negative infinite input rejected");
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(0.0f)),
+          "legacy RSM zero calibration rejected");
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(0.079f)),
+          "legacy RSM calibration below minimum rejected");
+    check(std::isnan(agronozzle::migrateLegacyRsmQ3(5.001f)),
+          "legacy RSM calibration above maximum rejected");
+    check(near(agronozzle::migrateLegacyRsmQ3(0.08f), 0.08f, 0.0001f),
+          "legacy RSM minimum boundary accepted");
+    check(near(agronozzle::migrateLegacyRsmQ3(5.0f), 5.0f, 0.0001f),
+          "legacy RSM maximum boundary accepted");
+
+    check(std::isnan(agronozzle::migrateV2RsmQ3(nanValue)),
+          "V2 RSM NaN input rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(infValue)),
+          "V2 RSM infinite input rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(-infValue)),
+          "V2 RSM negative infinite input rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(0.0f)),
+          "V2 RSM zero calibration rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(0.079f)),
+          "V2 RSM calibration below minimum rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(5.001f)),
+          "V2 RSM calibration above maximum rejected");
+    check(std::isnan(agronozzle::migrateV2RsmQ3(0.08f)),
+          "V2 RSM migration result below minimum rejected");
+    check(near(agronozzle::migrateV2RsmQ3(0.08f * 1.78f / 1.54f),
+               0.08f, 0.0001f),
+          "V2 RSM converted minimum boundary accepted");
+    check(near(agronozzle::migrateV2RsmQ3(5.0f),
+               5.0f * 1.54f / 1.78f, 0.0001f),
+          "V2 RSM maximum input migrates to a valid value");
 
     std::cout << "OK: " << checks << " nozzle calibration assertions passed\n";
 }
