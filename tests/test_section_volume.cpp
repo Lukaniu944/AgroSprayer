@@ -8,7 +8,7 @@
 int main() {
     int checks = 0;
     auto check = [&](bool ok, const char *name) {
-        if (!ok) { std::cerr << "FAIL: " << name << '\\n'; std::abort(); }
+        if (!ok) { std::cerr << "FAIL: " << name << '\n'; std::abort(); }
         ++checks;
     };
     auto near = [](double a, double b) { return std::fabs(a - b) < 1e-8; };
@@ -97,5 +97,5 @@ int main() {
     v.sample(3600u, 0x3f, 30.0f, false);
     v.sample(4600u, 0x3f, 30.0f, true);
     check(near(v.liters(), 1.1), "invalid sensor interval does not add liters");
-    std::cout << "OK: " << checks << " section volume assertions passed\\n";
+    std::cout << "OK: " << checks << " section volume assertions passed\n";
 }
