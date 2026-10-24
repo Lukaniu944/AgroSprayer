@@ -2570,8 +2570,14 @@ void ui_update()
 
     set_label_text_if_changed(lblTankPct,tankReading.configured ? (tankReading.saveOk?"Wyliczone":"Blad zapisu") : "Dotknij: ustaw");
     const float wantedPressure=nozzle_target_bar();
-    if(std::isfinite(wantedPressure)&&wantedPressure<=5.5f)snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
-    else snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
+    // Match the displayed AUTO target to pressure_control_core.h: 2.0-4.8 bar.
+    // The nozzle table may calculate higher RSM pressures, but AUTO rejects them.
+    if(std::isfinite(wantedPressure)&&wantedPressure>=2.0f&&wantedPressure<=4.8f)
+        snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
+    else if(std::isfinite(wantedPressure))
+        snprintf(buf,sizeof(buf),"%s\nCel poza zakresem AUTO (2.0-4.8 bar)",nozzle_status());
+    else
+        snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
     set_label_text_if_changed(nozzleHomeInfo,buf);
     // Detail panels above keep updating; hidden home widgets wait until return.
     if (lv_screen_active() != scrHome) return;
