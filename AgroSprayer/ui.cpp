@@ -168,7 +168,7 @@ static lv_obj_t *panel(
 
     lv_obj_set_pos(o, x, y);
     lv_obj_set_size(o, w, h);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(o, false);
 
     lv_obj_set_style_radius(o, 10, 0);
     lv_obj_set_style_bg_color(o, C_PANEL(), 0);
@@ -824,12 +824,12 @@ static void flow_cal_input_open_cb(lv_event_t *)
     if (flowCalRunning) return;
     flowCalInput[0] = '\0';
     set_label_text_if_changed(flowCalInputLabel, "WPISZ RZECZYWISTE LITRY");
-    lv_obj_clear_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, false);
 }
 
 static void flow_cal_input_cancel_cb(lv_event_t *)
 {
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_input_key_cb(lv_event_t *e)
@@ -859,7 +859,7 @@ static void flow_cal_input_accept_cb(lv_event_t *)
         return;
     }
     flow_cal_set_volume((int)(liters * 10.0 + 0.5));
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_save_cb(lv_event_t *)
@@ -925,8 +925,8 @@ static void settings_detail_cb(lv_event_t *e)
         release_detail_editors();
         set_label_text_if_changed(detailMsg, "Najpierw nacisnij ZAKONCZ TEST w pasku SYMULACJA.");
         set_label_text_if_changed(detailMsg2, "Kalibracja i zapis ustawien wymagaja zakonczenia testu.");
-        lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(detailMsg, false);
+        lv_obj_set_hidden(detailMsg2, false);
         lv_screen_load(scrSettingsDetail);
         return;
     }
@@ -957,33 +957,33 @@ static void settings_detail_cb(lv_event_t *e)
 
     if (sectionEditorPanel) {
         if (sectionMode) {
-            lv_obj_clear_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, false);
         } else {
-            lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, true);
         }
     }
 
     if (flowCalPanel) {
         if (flowMode) {
-            lv_obj_clear_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, false);
         } else {
-            lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, true);
         }
     }
 
     if (detailMsg) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, true);
         } else {
-            lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, false);
         }
     }
 
     if (detailMsg2) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, true);
         } else {
-            lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, false);
         }
     }
 
@@ -1748,7 +1748,7 @@ void ui_create()
 
     lv_obj_set_style_bg_color(scr, C_BG(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scr, false);
 
     // Geometry follows the approved 1024 x 600 dashboard reference.
     lv_obj_t *top = panel(scr, 14, 4, 996, 36, C_BG());
@@ -1892,7 +1892,7 @@ void ui_create()
     scrSettings = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettings, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettings, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettings, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettings, false);
 
     create_quick_settings();
 
@@ -1902,7 +1902,7 @@ void ui_create()
     scrSettingsDetail = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettingsDetail, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettingsDetail, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettingsDetail, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettingsDetail, false);
 
     lv_obj_t *detailTop = panel(
         scrSettingsDetail,
@@ -1962,7 +1962,7 @@ void ui_create()
 
     scrNavigation = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrNavigation, C_BG(), 0);
-    lv_obj_clear_flag(scrNavigation, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrNavigation, false);
     lv_obj_t *navPanel = panel(scrNavigation, 12, 12, 1000, 526, C_BORDER());
     font28(label(navPanel, LV_SYMBOL_GPS "  NAWIGACJA", 24, 20, C_GREEN()));
     font24(label(navPanel, "Podglad mapy wymaga integracji z AgOpenGPS.", 24, 212, C_TEXT()));
@@ -1974,7 +1974,7 @@ void ui_create()
     lv_obj_t *simulationLabel = label(simulationBar, "SYMULACJA", 14, 17, C_ORANGE());
     font20(simulationLabel);
     button(simulationBar, 216, 5, 236, 44, "ZAKONCZ TEST", bench_end_cb);
-    lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(simulationBar, true);
 
 }
 
@@ -2029,7 +2029,7 @@ static void create_section_editor()
         756, 250,
         C_BLUE()
     );
-    lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(sectionEditorPanel, true);
 
     sectionEditorTitle =
         label(
@@ -2123,7 +2123,7 @@ static void create_flow_calibration()
         836, 340,
         C_GREEN()
     );
-    lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalPanel, true);
 
     flowCalCurrent = label(flowCalPanel, "AKTUALNIE: -- imp/L", 24, 14, C_TEXT());
     font20(flowCalCurrent);
@@ -2158,7 +2158,7 @@ static void create_flow_calibration()
 
     // Persistent keypad: created once, no screen rebuilding during a test.
     flowCalInputPanel = panel(flowCalPanel, 0, 0, 836, 340, C_BLUE());
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(flowCalInputPanel, true);
     flowCalInputLabel = label(flowCalInputPanel, "WPISZ RZECZYWISTE LITRY", 24, 35, C_TEXT());
     font20(flowCalInputLabel);
     label(flowCalInputPanel, "Litry: dokladnosc 0.1 L", 24, 90, C_MUTED());
@@ -2174,7 +2174,7 @@ static void create_flow_calibration()
     lv_obj_set_size(matrix, 324, 300);
     lv_obj_set_style_text_font(matrix, &lv_font_montserrat_20, LV_PART_ITEMS);
     lv_obj_add_event_cb(matrix, flow_cal_input_key_cb, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 
     flow_cal_refresh();
 
@@ -2551,8 +2551,8 @@ void ui_update()
     char buf[96];
     snprintf(buf,sizeof(buf),"%s | %s  >",nozzle_name(),nozzle_liquid_name());set_label_text_if_changed(homeProfile,buf);
     if (simulationBar) {
-        if (bench_test_active()) lv_obj_clear_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+        if (bench_test_active()) lv_obj_set_hidden(simulationBar, false);
+        else lv_obj_set_hidden(simulationBar, true);
     }
     if (lv_screen_active()==scrSettings) quick_settings_refresh();
     if (benchPanel) bench_refresh();
