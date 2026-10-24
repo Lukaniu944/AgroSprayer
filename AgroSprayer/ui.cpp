@@ -376,40 +376,6 @@ static void section_cb(lv_event_t *e)
 }
 
 
-static void sprayer_section_cb(lv_event_t *e)
-{
-    if (sprayer_display_state().autoMode) {
-        return;
-    }
-
-    int i =
-        (int)(intptr_t)
-        lv_event_get_user_data(e);
-
-    if (i < 0 || i >= SECTION_COUNT) {
-        return;
-    }
-
-    // Timestamp the command transition before changing the mask. This keeps
-    // the shared volume/area estimator aligned with both section-control pages.
-    nozzle_section_change_at(millis());
-    sprayer_display_state().sections[i] = !sprayer_display_state().sections[i];
-
-    // Natychmiastowa reakcja wizualna - bez czekania na ui_update().
-    if (sprayerSections[i]) {
-        set_button_state(sprayerSections[i], sprayer_display_state().sections[i]);
-    }
-
-    if (btnSections[i]) {
-        set_button_state(btnSections[i], sprayer_display_state().sections[i]);
-    }
-
-    prevSectionState[i] = sprayer_display_state().sections[i];
-    prevSectionStateValid = true;
-
-    aog_send_switch_now();
-}
-
 static void all_cb(lv_event_t *)
 {
     if (sprayer_display_state().autoMode) {
