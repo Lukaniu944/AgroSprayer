@@ -30,15 +30,8 @@ static bool validSettings(const NozzleSettings &s){
 }
 // Preset liquids are authoritative: a stale/corrupt saved density must not
 // silently disable the RSM correction. Only WLASNA uses the editable density.
-static float presetLiquidDensity(uint8_t liquid){
-    static constexpr float rho[4]={1.0f,1.28f,1.30f,1.32f};
-    return liquid<4 ? rho[liquid] : NAN;
-}
 static void normalizeLiquidDensity(NozzleSettings &s){
-    if(s.liquid<4) s.density=presetLiquidDensity(s.liquid);
-}
-static float effectiveLiquidDensity(const NozzleSettings &s){
-    return s.liquid<4 ? presetLiquidDensity(s.liquid) : s.density;
+    if(s.liquid<4) s.density=agronozzle::presetLiquidDensity(s.liquid);
 }
 void nozzle_begin(){
     ns=NozzleSettings{};Preferences p;
@@ -86,12 +79,12 @@ float nozzle_flow(float bar,const NozzleSettings &s){
     const float tableFlow=agronozzle::tableWaterFlow(bar,s.nozzle);
     if(!std::isfinite(tableFlow))return NAN;
     return agronozzle::calibratedWaterFlow(tableFlow,s.waterQ3[s.nozzle],
-                                           s.nozzle,effectiveLiquidDensity(s));
+                                           s.nozzle,agronozzle::effectiveLiquidDensity(s.liquid,s.density));
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(total)||total<=0||count<=0)return NAN;
     return agronozzle::targetPressureForFlow(
-        total, count, s.nozzle, s.waterQ3[s.nozzle], effectiveLiquidDensity(s));
+        total, count, s.nozzle, s.waterQ3[s.nozzle], agronozzle::effectiveLiquidDensity(s.liquid,s.density));
 }
 float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
 void nozzle_update(){

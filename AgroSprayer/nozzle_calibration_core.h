@@ -12,6 +12,23 @@ inline float migrateLegacyRsmQ3(float legacyValue) {
 inline float migrateV2RsmQ3(float v2Value) {
     return v2Value * (kRsmTableQ3 / kV2RsmReference);
 }
+// Density presets used by the production nozzle model and native regression tests.
+// Preset profiles override stale saved density; WLASNA (index 4) uses the editable value.
+inline float presetLiquidDensity(int liquid) {
+    static constexpr float densities[4] = {1.0f, 1.28f, 1.30f, 1.32f};
+    if (liquid < 0 || liquid >= 4)
+        return std::numeric_limits<float>::quiet_NaN();
+    return densities[liquid];
+}
+inline float effectiveLiquidDensity(int liquid, float customDensity) {
+    if (liquid >= 0 && liquid < 4)
+        return presetLiquidDensity(liquid);
+    if (liquid != 4 || !std::isfinite(customDensity) ||
+        customDensity < 0.8f || customDensity > 1.6f)
+        return std::numeric_limits<float>::quiet_NaN();
+    return customDensity;
+}
+
 inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, float density) {
     // Reject invalid calibration inputs instead of propagating an impossible
     // flow estimate into the dose display or pressure-target calculation.

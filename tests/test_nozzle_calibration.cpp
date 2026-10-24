@@ -78,6 +78,27 @@ int main() {
         }
     }
 
+    // Preset density mapping is shared with production code; stale saved density
+    // must never override the selected liquid, while WLASNA keeps its own value.
+    check(near(agronozzle::effectiveLiquidDensity(0, 1.30f), 1.00f),
+          "WODA preset overrides stale saved density");
+    check(near(agronozzle::effectiveLiquidDensity(1, 1.00f), 1.28f),
+          "RSM 28 preset overrides stale saved density");
+    check(near(agronozzle::effectiveLiquidDensity(2, 1.00f), 1.30f),
+          "RSM 30 preset overrides stale saved density");
+    check(near(agronozzle::effectiveLiquidDensity(3, 1.00f), 1.32f),
+          "RSM 32 preset overrides stale saved density");
+    check(near(agronozzle::effectiveLiquidDensity(4, 1.36f), 1.36f),
+          "WLASNA preserves editable density");
+    check(std::isnan(agronozzle::effectiveLiquidDensity(-1, 1.00f)),
+          "negative liquid preset rejected");
+    check(std::isnan(agronozzle::effectiveLiquidDensity(5, 1.00f)),
+          "unknown liquid preset rejected");
+    check(std::isnan(agronozzle::effectiveLiquidDensity(4, NAN)),
+          "custom liquid NaN density rejected");
+    check(std::isnan(agronozzle::effectiveLiquidDensity(4, 1.61f)),
+          "custom liquid density above allowed range rejected");
+
     // Liquid-density correction is sqrt(relative density): 1.13 for RSM 28,
     // 1.14 for RSM 30, and 1.15 for RSM 32, applied to estimated liquid flow.
     const float qWater = 1.54f;
