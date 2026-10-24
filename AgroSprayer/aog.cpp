@@ -10,6 +10,7 @@
 static WiFiUDP udp;
 static agroaog::Session aogSession;
 static agroaog::AutoRecoveryGate aogRecovery;
+static agroaog::StalePacketQueueGuard staleQueueGuard;
 static IPAddress broadcastIp(255,255,255,255);
 static uint32_t lastTx = 0;
 static bool pendingTx = false;
@@ -108,13 +109,16 @@ void aog_update() {
         aogSession.reset();
         updateBroadcast();
         udpStarted = udp.begin(AOG_RX_PORT) == 1;
+        if (udpStarted) staleQueueGuard.onSessionStart();
     }
 
     gState.udpOk = gState.wifiOk && udpStarted;
-    // Check expiry before consuming queued PGN239 packets: a late
-    // packet must not hide an expired link and reopen AUTO sections.
-    aogRecovery.onLinkStatus(aogSession.fresh(gState.udpOk, millis(),
-                                             gState.lastAogMs, AOG_TIMEOUT_MS));
+    // Detect expiry before reading queued UDP data. Drain the old backlog
+    // in bounded batches; none of those packets may refresh this session.
+    const bool freshAtQueueStart = aogSession.fresh(
+        gState.udpOk, millis(), gState.lastAogMs, AOG_TIMEOUT_MS);
+    staleQueueGuard.onLinkStatus(gState.aogOk, freshAtQueueStart);
+    aogRecovery.onLinkStatus(freshAtQueueStart);
     if (modeReset && !gState.autoMode) modeReset = false;
     if (modeReset && resetSent && (uint32_t)(millis()-resetStartMs)>=MODE_RESET_MS) {
         modeReset = false;
@@ -124,16 +128,19 @@ void aog_update() {
     if (udpStarted) {
         // Bound UDP work per pass so a packet backlog cannot monopolize
         // the control loop ahead of pressure sampling and valve regulation.
+        // While draining a stale/session-start backlog, read but do not parse.
+        const bool discardBatch = staleQueueGuard.discarding();
         std::size_t packetsProcessed = 0;
         int sz = udp.parsePacket();
         while (sz > 0 &&
                agroaog::machinePacketBudgetRemaining(packetsProcessed)) {
             uint8_t buf[128];
             int n = udp.read(buf,sizeof(buf));
-            if (n > 0) parse(buf,n);
+            if (n > 0 && !discardBatch) parse(buf,n);
             ++packetsProcessed;
             sz = udp.parsePacket();
         }
+        if (discardBatch && sz <= 0) staleQueueGuard.queueDrained();
     }
 
     uint32_t now = millis();
