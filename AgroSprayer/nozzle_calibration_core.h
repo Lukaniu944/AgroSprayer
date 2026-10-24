@@ -7,10 +7,20 @@ constexpr float kRsmTableQ3 = 1.54f;
 constexpr float kV2RsmReference = 1.78f;
 constexpr float kLegacyRsmReference = 1.54f;
 inline float migrateLegacyRsmQ3(float legacyValue) {
-    return legacyValue * (kRsmTableQ3 / kLegacyRsmReference);
+    if (!std::isfinite(legacyValue) || legacyValue < 0.08f || legacyValue > 5.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    const float migrated = legacyValue * (kRsmTableQ3 / kLegacyRsmReference);
+    if (!std::isfinite(migrated) || migrated < 0.08f || migrated > 5.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    return migrated;
 }
 inline float migrateV2RsmQ3(float v2Value) {
-    return v2Value * (kRsmTableQ3 / kV2RsmReference);
+    if (!std::isfinite(v2Value) || v2Value < 0.08f || v2Value > 5.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    const float migrated = v2Value * (kRsmTableQ3 / kV2RsmReference);
+    if (!std::isfinite(migrated) || migrated < 0.08f || migrated > 5.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+    return migrated;
 }
 // Density presets used by the production nozzle model and native regression tests.
 // Preset profiles override stale saved density; WLASNA (index 4) uses the editable value.
