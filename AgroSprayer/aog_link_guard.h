@@ -5,6 +5,12 @@
 #include <cstddef>
 
 namespace agroaog {
+// Bound the amount of queued UDP work performed before returning to the
+// pressure and valve-control updates in the main loop.
+constexpr std::size_t kMaxMachinePacketsPerUpdate = 4;
+inline bool machinePacketBudgetRemaining(std::size_t processed) {
+    return processed < kMaxMachinePacketsPerUpdate;
+}
 // PGN239 (machine data) is exactly 14 bytes: 5-byte header,
 // 8-byte payload and 1-byte additive checksum over bytes 2..12.
 inline bool validMachinePacket(const uint8_t* p, std::size_t n) {

@@ -33,6 +33,18 @@ int main() {
         return p;
     };
 
+    // Keep UDP processing bounded so control-loop work cannot be starved by a backlog.
+    check(agroaog::kMaxMachinePacketsPerUpdate == 4,
+          "per-update machine packet budget is four");
+    check(agroaog::machinePacketBudgetRemaining(0),
+          "packet budget allows first packet");
+    check(agroaog::machinePacketBudgetRemaining(3),
+          "packet budget allows final configured packet");
+    check(!agroaog::machinePacketBudgetRemaining(4),
+          "packet budget stops at configured limit");
+    check(!agroaog::machinePacketBudgetRemaining(SIZE_MAX),
+          "packet budget remains closed for oversized processed count");
+
     // Reject malformed PGN239 packets before they can refresh the AOG link.
     auto packet = makeMachinePacket();
     check(agroaog::validMachinePacket(packet.data(), packet.size()),

@@ -122,11 +122,16 @@ void aog_update() {
     }
 
     if (udpStarted) {
+        // Bound UDP work per pass so a packet backlog cannot monopolize
+        // the control loop ahead of pressure sampling and valve regulation.
+        std::size_t packetsProcessed = 0;
         int sz = udp.parsePacket();
-        while (sz > 0) {
+        while (sz > 0 &&
+               agroaog::machinePacketBudgetRemaining(packetsProcessed)) {
             uint8_t buf[128];
             int n = udp.read(buf,sizeof(buf));
             if (n > 0) parse(buf,n);
+            ++packetsProcessed;
             sz = udp.parsePacket();
         }
     }
