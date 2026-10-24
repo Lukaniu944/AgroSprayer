@@ -366,6 +366,48 @@ int main() {
         in.sensorValid=false;in.now+=50;
         test(c.step(in).stopMotor && !c.armed(),"pressure sensor loss trips");
     }
+    // A signal can pass the broad diagnostic voltage window while remaining
+    // below the sensor's calibrated 0.5 V zero point. It must fail closed.
+    {
+        const float lowSignalV = 0.4f;
+        float lowBar = -1.0f;
+        test(agropres::sensorVoltageValid(lowSignalV, 0.3f, 4.7f),
+             "under-range signal remains inside diagnostic window");
+        test(agropres::sensorVoltageToBar(
+                 lowSignalV, 0.5f, 4.5f, 80.0f, lowBar) && lowBar == 0.0f,
+             "under-range sensor voltage clamps to zero bar");
+        auto low = good();
+        low.pressureBar = lowBar;
+        Controller cannotArm;
+        test(!cannotArm.arm(low) && !cannotArm.armed(),
+             "under-range pressure cannot arm automatic regulator");
+
+        auto running = good();
+        Controller trips;
+        test(trips.arm(running), "arm before under-range signal test");
+        test(trips.step(running).direction != 0,
+             "regulator has a pending action before sensor fault");
+        running.now += 50;
+        running.pressureBar = lowBar;
+        const auto lowAction = trips.step(running);
+        test(lowAction.stopMotor && !trips.armed(),
+             "under-range pressure stops motor and disarms regulator");
+
+        auto high = good();
+        float highBar = -1.0f;
+        test(agropres::sensorVoltageToBar(
+                 4.7f, 0.5f, 4.5f, 80.0f, highBar) &&
+             highBar > 5.0f,
+             "upper diagnostic voltage maps above safe pressure ceiling");
+        Controller highTrips;
+        test(highTrips.arm(high), "arm before over-range pressure test");
+        highTrips.step(high);
+        high.now += 50;
+        high.pressureBar = highBar;
+        const auto highAction = highTrips.step(high);
+        test(highAction.stopMotor && !highTrips.armed(),
+             "over-range pressure stops motor and disarms regulator");
+    }
     in=good();
     {
         Controller c;c.arm(in);c.step(in);
