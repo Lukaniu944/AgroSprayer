@@ -59,6 +59,26 @@ int main() {
         test(agropres::sensorVoltageToBar(4.5f, 0.5f, 4.5f, 80.0f, bar) &&
              near(bar, 80.0f * agropres::kPsiToBar),
              "4.5 V maps to the 80 psi sensor ceiling");
+
+        // End-to-end checkpoints for the installed 0.5–4.5 V / 0–80 psi
+        // sensor and 1.5:1 divider, using raw ADS1115 counts at known pressures.
+        const struct { int16_t raw; float expectedBar; } checkpoints[] = {
+            {10402, 2.0f},
+            {14270, 3.0f},
+            {18137, 4.0f},
+            {21231, 4.8f}
+        };
+        for (const auto &point : checkpoints) {
+            const float sensorV =
+                agropres::sensorVoltageFromAdcRaw(point.raw, 1.5f);
+            float reconstructedBar = -1.0f;
+            test(agropres::sensorVoltageValid(sensorV, 0.3f, 4.7f),
+                 "known pressure checkpoint stays in diagnostic voltage window");
+            test(agropres::sensorVoltageToBar(
+                     sensorV, 0.5f, 4.5f, 80.0f, reconstructedBar) &&
+                 near(reconstructedBar, point.expectedBar, 0.002f),
+                 "ADS1115 raw count reconstructs known pressure within 0.002 bar");
+        }
         test(agropres::sensorVoltageToBar(0.3f, 0.5f, 4.5f, 80.0f, bar) &&
              near(bar, 0.0f), "low accepted diagnostic voltage clamps to zero bar");
         test(agropres::sensorVoltageToBar(4.7f, 0.5f, 4.5f, 80.0f, bar) &&
