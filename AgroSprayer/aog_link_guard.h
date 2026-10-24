@@ -11,6 +11,19 @@ constexpr std::size_t kMaxMachinePacketsPerUpdate = 4;
 inline bool machinePacketBudgetRemaining(std::size_t processed) {
     return processed < kMaxMachinePacketsPerUpdate;
 }
+// After a session start or a fresh-to-stale transition, discard already
+// queued packets in bounded batches. Re-enable parsing only after the queue
+// is observed empty, so an old backlog cannot refresh link freshness.
+class StalePacketQueueGuard {
+    bool discardUntilEmpty_ = false;
+public:
+    void onSessionStart() { discardUntilEmpty_ = true; }
+    void onLinkStatus(bool wasFresh, bool freshNow) {
+        if (wasFresh && !freshNow) discardUntilEmpty_ = true;
+    }
+    bool discarding() const { return discardUntilEmpty_; }
+    void queueDrained() { discardUntilEmpty_ = false; }
+};
 // PGN239 (machine data) is exactly 14 bytes: 5-byte header,
 // 8-byte payload and 1-byte additive checksum over bytes 2..12.
 inline bool validMachinePacket(const uint8_t* p, std::size_t n) {
