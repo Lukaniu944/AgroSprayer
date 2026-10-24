@@ -63,10 +63,14 @@ int main() {
     {
         agrovolume::SectionEventLatch rolloverLatch;
         agrovolume::SectionVolumeIntegrator rolloverVolume;
-        rolloverVolume.sample(UINT32_MAX - 1500u, 0x3fu, 60.0f, true);
-        rolloverVolume.sample(UINT32_MAX - 1000u, 0x3fu, 60.0f, true);
+        rolloverVolume.sample(UINT32_MAX - 1500u, 0x3fu, 60.0f, true, 80, 21.0f);
+        rolloverVolume.sample(UINT32_MAX - 1000u, 0x3fu, 60.0f, true, 80, 21.0f);
         check(near(rolloverVolume.liters(), 0.5),
               "rollover transition scenario has 0.5 L baseline");
+        check(near(rolloverVolume.hectares(), 80.0 * 21.0 * 500.0 / 360000000.0),
+              "rollover transition area baseline");
+        check(rolloverVolume.sprayMs() == 500u,
+              "rollover transition spray-time baseline");
         rolloverLatch.note(UINT32_MAX - 500u);
         rolloverLatch.note(UINT32_MAX - 200u);
         check(rolloverLatch.take(event) && event == UINT32_MAX - 500u,
@@ -76,12 +80,27 @@ int main() {
         rolloverVolume.settleBeforeSectionChange(event, true);
         check(near(rolloverVolume.liters(), 1.0),
               "old flow settles once to first rollover event");
-        rolloverVolume.sample(200u, 0x1fu, 30.0f, true);
+        check(near(rolloverVolume.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0),
+              "old-mask area settles once across rollover");
+        check(rolloverVolume.sprayMs() == 1000u,
+              "old-mask spray time settles once across rollover");
+        rolloverVolume.sample(200u, 0x1fu, 30.0f, true, 80, 17.0f);
         check(near(rolloverVolume.liters(), 1.0),
               "post-rollover transition sample only rebaselines");
-        rolloverVolume.sample(1200u, 0x1fu, 30.0f, true);
+        check(near(rolloverVolume.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0),
+              "post-rollover rebaseline adds no area");
+        check(rolloverVolume.sprayMs() == 1000u,
+              "post-rollover rebaseline adds no spray time");
+        rolloverVolume.sample(1200u, 0x1fu, 30.0f, true, 80, 17.0f);
         check(near(rolloverVolume.liters(), 1.5),
               "integration resumes after fresh post-rollover sample");
+        check(near(rolloverVolume.hectares(),
+                   (80.0 * 21.0 * 1000.0 + 80.0 * 17.0 * 1000.0) / 360000000.0),
+              "new-mask area resumes after rollover rebaseline");
+        check(near(rolloverVolume.areaLiters(), 1.5),
+              "area liters remain aligned across rollover");
+        check(rolloverVolume.sprayMs() == 2000u,
+              "spray time resumes after rollover rebaseline");
     }
 
     // A saved nozzle profile must not blend the old flow with the new one.
@@ -97,5 +116,45 @@ int main() {
     v.sample(3600u, 0x3f, 30.0f, false);
     v.sample(4600u, 0x3f, 30.0f, true);
     check(near(v.liters(), 1.1), "invalid sensor interval does not add liters");
+
+    // All job counters use one event-segmented clock, independent of UI refresh timing.
+    v.reset();
+    v.sample(1000u, 0x3f, 60.0f, true, 80, 21.0f);
+    v.sample(2000u, 0x3f, 60.0f, true, 80, 21.0f);
+    check(near(v.liters(), 1.0), "area test volume baseline");
+    check(near(v.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0), "full width area 1 s");
+    check(near(v.areaLiters(), 1.0), "moving liters match full-width volume");
+    check(v.sprayMs() == 1000u, "full-width spray time");
+    v.settleBeforeSectionChange(2500u, true);
+    check(near(v.liters(), 1.5), "transition adds old-mask liters");
+    check(near(v.hectares(), 80.0 * 21.0 * 1500.0 / 360000000.0), "transition adds old-mask area");
+    check(v.sprayMs() == 1500u, "transition adds old-mask spray time");
+    v.sample(2500u, 0x1f, 30.0f, true, 80, 17.0f);
+    v.sample(3500u, 0x1f, 30.0f, true, 80, 17.0f);
+    check(near(v.liters(), 2.0), "new-mask liters after transition");
+    check(near(v.hectares(), (80.0 * 21.0 * 1500.0 + 80.0 * 17.0 * 1000.0) / 360000000.0),
+          "new-mask hectares use active width not total width");
+    check(near(v.areaLiters(), 2.0), "area liters align with event-segmented volume");
+    check(v.sprayMs() == 2500u, "spray time aligns with volume");
+    v.sample(3600u, 0x0fu, 20.0f, true, 80, 13.0f);
+    check(near(v.hectares(), (80.0 * 21.0 * 1500.0 + 80.0 * 17.0 * 1000.0) / 360000000.0),
+          "unannounced mask change adds no area");
+    check(v.sprayMs() == 2500u,
+          "unannounced mask change adds no spray time");
+    v.reset();
+    v.sample(1000u, 0x3f, 60.0f, true, 0, 21.0f);
+    v.sample(2000u, 0x3f, 60.0f, true, 0, 21.0f);
+    check(near(v.liters(), 1.0) && near(v.hectares(), 0.0), "stationary spray counts liters but no hectares");
+    check(near(v.areaLiters(), 0.0) && v.sprayMs() == 1000u, "stationary spray time, no area liters");
+    v.sample(3000u, 0x3f, 60.0f, false, 80, 21.0f);
+    check(near(v.hectares(), 0.0) && v.sprayMs() == 1000u, "stale sensor adds no area or time");
+    v.reset();
+    v.sample(UINT32_MAX - 500u, 0x3f, 60.0f, true, 80, 21.0f);
+    v.sample(499u, 0x3f, 60.0f, true, 80, 21.0f);
+    check(near(v.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0), "area handles millis rollover");
+    v.reset();
+    check(near(v.hectares(), 0.0) && near(v.areaLiters(), 0.0) && v.sprayMs() == 0,
+          "reset clears area and spray time");
+
     std::cout << "OK: " << checks << " section volume assertions passed\n";
 }
