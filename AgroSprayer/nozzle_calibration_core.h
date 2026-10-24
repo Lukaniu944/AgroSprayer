@@ -13,8 +13,18 @@ inline float migrateV2RsmQ3(float v2Value) {
     return v2Value * (kRsmTableQ3 / kV2RsmReference);
 }
 inline float calibratedWaterFlow(float tableFlow, float waterQ3, int nozzle, float density) {
+    // Reject invalid calibration inputs instead of propagating an impossible
+    // flow estimate into the dose display or pressure-target calculation.
+    if (!std::isfinite(tableFlow) || tableFlow < 0.0f ||
+        !std::isfinite(waterQ3) || waterQ3 <= 0.0f ||
+        nozzle < 0 || nozzle > 1 ||
+        !std::isfinite(density) || density <= 0.0f)
+        return std::numeric_limits<float>::quiet_NaN();
+
     const float tableQ3 = nozzle == 1 ? kRsmTableQ3 : 1.18f;
-    return tableFlow * (waterQ3 / tableQ3) / std::sqrt(density);
+    const float calibrated = tableFlow * (waterQ3 / tableQ3) / std::sqrt(density);
+    return std::isfinite(calibrated) && calibrated >= 0.0f
+        ? calibrated : std::numeric_limits<float>::quiet_NaN();
 }
 // Manufacturer water-flow tables for the blue 11003 and red 04RSM tips.
 // Returns NaN outside each published pressure range; no extrapolation.
