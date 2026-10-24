@@ -45,6 +45,22 @@ int main() {
     check(!agroaog::machinePacketBudgetRemaining(SIZE_MAX),
           "packet budget remains closed for oversized processed count");
 
+    // A newly opened session drains packets already queued before accepting telemetry.
+    agroaog::StalePacketQueueGuard queueGuard;
+    check(!queueGuard.discarding(), "queue guard starts idle");
+    queueGuard.onSessionStart();
+    check(queueGuard.discarding(), "new UDP session discards pre-existing backlog");
+    queueGuard.queueDrained();
+    check(!queueGuard.discarding(), "empty queue ends session-start drain");
+    queueGuard.onLinkStatus(true, false);
+    check(queueGuard.discarding(), "fresh-to-stale transition starts backlog drain");
+    queueGuard.onLinkStatus(false, false);
+    check(queueGuard.discarding(), "continued stale link keeps draining backlog");
+    queueGuard.queueDrained();
+    check(!queueGuard.discarding(), "observed empty queue ends stale backlog drain");
+    queueGuard.onLinkStatus(false, true);
+    check(!queueGuard.discarding(), "freshness without a prior fresh-to-stale edge does not re-arm drain");
+
     // Reject malformed PGN239 packets before they can refresh the AOG link.
     auto packet = makeMachinePacket();
     check(agroaog::validMachinePacket(packet.data(), packet.size()),
