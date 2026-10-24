@@ -3,6 +3,7 @@
 // Kept independent of Arduino/ESP-IDF so the math can be regression-tested on desktop.
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 namespace agropres {
 constexpr float kAds1115FullScaleV = 4.096f;
