@@ -27,7 +27,7 @@ int main() {
     // measurement at 3 bar; the selected RSM profile applies the published factor.
     // Preserve the calibrated curve when migrating stored settings to V3.
     {
-        auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+        auto eq=[](float a,float b,float tol=1e-5f){return std::fabs(a-b)<tol;};
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.0f),1.54f),
              "04RSM water table matches at density 1.0");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,2.0f,1,1.0f),2.0f),
