@@ -390,6 +390,9 @@ static void sprayer_section_cb(lv_event_t *e)
         return;
     }
 
+    // Timestamp the command transition before changing the mask. This keeps
+    // the shared volume/area estimator aligned with both section-control pages.
+    nozzle_section_change_at(millis());
     sprayer_display_state().sections[i] = !sprayer_display_state().sections[i];
 
     // Natychmiastowa reakcja wizualna - bez czekania na ui_update().
