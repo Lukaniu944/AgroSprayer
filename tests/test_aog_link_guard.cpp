@@ -1,4 +1,5 @@
 #include "../AgroSprayer/aog_link_guard.h"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -13,54 +14,54 @@ int main() {
         }
         ++checks;
     };
-    auto seal = [](uint8_t (&p)[14]) {
+    auto seal = [](auto &p) {
         uint8_t sum = 0;
         for (std::size_t i = 2; i < 13; ++i)
             sum = static_cast<uint8_t>(sum + p[i]);
         p[13] = sum;
     };
-    auto checksumOk = [](const uint8_t (&p)[14]) {
+    auto checksumOk = [](const auto &p) {
         uint8_t sum = 0;
         for (std::size_t i = 2; i < 13; ++i)
             sum = static_cast<uint8_t>(sum + p[i]);
         return sum == p[13];
     };
     auto makeMachinePacket = [&]() {
-        uint8_t p[14] = {0x80, 0x81, 0x7F, 0xEF, 0x08,
-                         0, 0, 0, 0, 0, 0, 0, 0, 0};
+        std::array<uint8_t, 14> p{{0x80, 0x81, 0x7F, 0xEF, 0x08,
+                                   0, 0, 0, 0, 0, 0, 0, 0, 0}};
         seal(p);
         return p;
     };
 
     // Reject malformed PGN239 packets before they can refresh the AOG link.
     auto packet = makeMachinePacket();
-    check(agroaog::validMachinePacket(packet, sizeof(packet)),
+    check(agroaog::validMachinePacket(packet.data(), packet.size()),
           "valid 14-byte PGN239 accepted");
-    check(!agroaog::validMachinePacket(nullptr, sizeof(packet)),
+    check(!agroaog::validMachinePacket(nullptr, packet.size()),
           "null packet rejected");
-    check(!agroaog::validMachinePacket(packet, 13),
+    check(!agroaog::validMachinePacket(packet.data(), 13),
           "truncated packet rejected");
-    check(!agroaog::validMachinePacket(packet, 15),
+    check(!agroaog::validMachinePacket(packet.data(), 15),
           "oversized packet rejected");
 
     auto bad = makeMachinePacket();
     bad[0] = 0;
     seal(bad);
-    check(!agroaog::validMachinePacket(bad, sizeof(bad)),
+    check(!agroaog::validMachinePacket(bad.data(), bad.size()),
           "wrong preamble rejected");
     bad = makeMachinePacket();
     bad[2] = 0x7E;
     seal(bad);
-    check(!agroaog::validMachinePacket(bad, sizeof(bad)),
+    check(!agroaog::validMachinePacket(bad.data(), bad.size()),
           "wrong PGN rejected");
     bad = makeMachinePacket();
     bad[4] = 7;
     seal(bad);
-    check(!agroaog::validMachinePacket(bad, sizeof(bad)),
+    check(!agroaog::validMachinePacket(bad.data(), bad.size()),
           "wrong payload length rejected");
     bad = makeMachinePacket();
     bad[13] ^= 1u;
-    check(!agroaog::validMachinePacket(bad, sizeof(bad)),
+    check(!agroaog::validMachinePacket(bad.data(), bad.size()),
           "bad checksum rejected");
 
     // A new UDP session is not fresh until a valid packet is recorded.
