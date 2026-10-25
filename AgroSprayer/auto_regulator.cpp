@@ -24,6 +24,7 @@ agroreg::Input snapshot() {
                   gState.rxPackets != 0 &&
                   (uint32_t)(s.now-gState.lastAogMs) <= AOG_TIMEOUT_MS;
     s.sensorValid = pressure_sensor_valid();
+    s.pressureTrip = pressure_sensor_overpressure();
     s.driverReady = valve_test_ready();
     s.benchMode = bench_test_active();
     // Manual diagnostic UNLOCK is also an interlock against automatic arming.
