@@ -56,6 +56,17 @@ int main() {
     }
     in=good();
     {
+        Controller c;
+        test(c.arm(in), "arm before pressure-trip test");
+        c.step(in);
+        in.pressureTrip=true;
+        in.now+=50;
+        const auto trip=c.step(in);
+        test(trip.stopMotor && trip.direction==0 && !c.armed(),
+             "latched raw-pressure trip stops motor and disarms");
+    }
+    in=good();
+    {
         Controller c;c.arm(in);
         in.sectionsOpen=false;
         in.targetBar=std::numeric_limits<float>::quiet_NaN();
