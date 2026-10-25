@@ -455,6 +455,19 @@ static float section_total_width_m()
     return total;
 }
 
+static bool section_widths_valid(const float *widths)
+{
+    if (!widths) return false;
+    float total = 0.0f;
+    for (int i = 0; i < SECTION_COUNT; ++i) {
+        if (!std::isfinite(widths[i]) || widths[i] < 0.1f || widths[i] > 20.0f)
+            return false;
+        total += widths[i];
+    }
+    // Editable widths are in 0.1 m steps; allow only floating-point rounding.
+    return std::isfinite(total) && std::fabs(total - 21.0f) <= 0.051f;
+}
+
 static lv_obj_t *sectionWidthLabels[SECTION_COUNT] = {};
 
 static void section_editor_refresh()
@@ -530,19 +543,31 @@ static void section_editor_refresh()
 
 static void section_settings_load()
 {
-    sectionPrefs.begin("agrosec", true);
+    const float defaults[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
+    float candidate[SECTION_COUNT] = {};
 
+    sectionPrefs.begin("agrosec", true);
     for (int i = 0; i < SECTION_COUNT; i++) {
         char key[8];
         snprintf(key, sizeof(key), "sec%d", i + 1);
+        candidate[i] = sectionPrefs.getFloat(key, defaults[i]);
+    }
+    sectionPrefs.end();
 
-        float v = sectionPrefs.getFloat(key, sectionWidthM[i]);
-
-        if (v >= 0.1f && v <= 20.0f) {
-            sectionWidthM[i] = v;
-        }
+    if (section_widths_valid(candidate)) {
+        memcpy(sectionWidthM, candidate, sizeof(candidate));
+        return;
     }
 
+    // Reject partially corrupt or old settings as a set; never run with a
+    // stored boom width that disagrees with the fixed 21.0 m implement.
+    memcpy(sectionWidthM, defaults, sizeof(defaults));
+    sectionPrefs.begin("agrosec", false);
+    for (int i = 0; i < SECTION_COUNT; i++) {
+        char key[8];
+        snprintf(key, sizeof(key), "sec%d", i + 1);
+        sectionPrefs.putFloat(key, defaults[i]);
+    }
     sectionPrefs.end();
 }
 
@@ -611,8 +636,13 @@ static void section_defaults_cb(lv_event_t *)
 
 static void section_save_cb(lv_event_t *)
 {
-    sectionPrefs.begin("agrosec", false);
+    if (!section_widths_valid(sectionWidthM)) {
+        set_label_text_if_changed(sectionEditorTotal,
+                                  "BLAD: SUMA MUSI WYNOSIC 21.0 m");
+        return;
+    }
 
+    sectionPrefs.begin("agrosec", false);
     for (int i = 0; i < SECTION_COUNT; i++) {
         char key[8];
         snprintf(key, sizeof(key), "sec%d", i + 1);
