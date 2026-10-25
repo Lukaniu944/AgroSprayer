@@ -102,7 +102,9 @@ static uint32_t flowCalElapsedMs = 0;
 static int flowCalVolumeX10 = 1000; // 100.0 L
 static uint32_t flowCalCandidateX100 = 0;
 
-static float sectionWidthM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
+static float sectionWidthM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f}; // Active configuration
+static float sectionWidthDraftM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f}; // Editor-only until saved
+static bool quickWidthsDirty = false;
 static Preferences sectionPrefs;
 
 static lv_obj_t *btnSections[SECTION_COUNT];
@@ -447,11 +449,14 @@ static void all_cb(lv_event_t *)
 static float section_total_width_m()
 {
     float total = 0.0f;
+    for (int i = 0; i < SECTION_COUNT; i++) total += sectionWidthM[i];
+    return total;
+}
 
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        total += sectionWidthM[i];
-    }
-
+static float section_draft_total_width_m()
+{
+    float total = 0.0f;
+    for (int i = 0; i < SECTION_COUNT; i++) total += sectionWidthDraftM[i];
     return total;
 }
 
@@ -489,12 +494,12 @@ static void section_editor_refresh()
             buf,
             sizeof(buf),
             "%.1f m",
-            sectionWidthM[sectionEditIndex]
+            sectionWidthDraftM[sectionEditIndex]
         );
         set_label_text_if_changed(sectionEditorValue, buf);
     }
 
-    const float total = section_total_width_m();
+    const float total = section_draft_total_width_m();
 
     if (sectionEditorTotal) {
         snprintf(
@@ -507,12 +512,7 @@ static void section_editor_refresh()
     }
 
     if (lblBoomWidth) {
-        snprintf(
-            buf,
-            sizeof(buf),
-            "BELKA %.1f m",
-            total
-        );
+        snprintf(buf, sizeof(buf), "BELKA %.1f m", section_total_width_m());
         set_label_text_if_changed(lblBoomWidth, buf);
     }
 
@@ -556,12 +556,16 @@ static void section_settings_load()
 
     if (section_widths_valid(candidate)) {
         memcpy(sectionWidthM, candidate, sizeof(candidate));
+        memcpy(sectionWidthDraftM, candidate, sizeof(candidate));
+        quickWidthsDirty = false;
         return;
     }
 
     // Reject partially corrupt or old settings as a set; never run with a
     // stored boom width that disagrees with the fixed 21.0 m implement.
     memcpy(sectionWidthM, defaults, sizeof(defaults));
+    memcpy(sectionWidthDraftM, defaults, sizeof(defaults));
+    quickWidthsDirty = false;
     sectionPrefs.begin("agrosec", false);
     for (int i = 0; i < SECTION_COUNT; i++) {
         char key[8];
@@ -595,29 +599,31 @@ static void section_next_cb(lv_event_t *)
 
 static void section_minus_len_cb(lv_event_t *)
 {
-    sectionWidthM[sectionEditIndex] -= 0.1f;
+    sectionWidthDraftM[sectionEditIndex] -= 0.1f;
 
-    if (sectionWidthM[sectionEditIndex] < 0.1f) {
-        sectionWidthM[sectionEditIndex] = 0.1f;
+    if (sectionWidthDraftM[sectionEditIndex] < 0.1f) {
+        sectionWidthDraftM[sectionEditIndex] = 0.1f;
     }
 
-    sectionWidthM[sectionEditIndex] =
-        ((int)(sectionWidthM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
+    sectionWidthDraftM[sectionEditIndex] =
+        ((int)(sectionWidthDraftM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
 static void section_plus_len_cb(lv_event_t *)
 {
-    sectionWidthM[sectionEditIndex] += 0.1f;
+    sectionWidthDraftM[sectionEditIndex] += 0.1f;
 
-    if (sectionWidthM[sectionEditIndex] > 20.0f) {
-        sectionWidthM[sectionEditIndex] = 20.0f;
+    if (sectionWidthDraftM[sectionEditIndex] > 20.0f) {
+        sectionWidthDraftM[sectionEditIndex] = 20.0f;
     }
 
-    sectionWidthM[sectionEditIndex] =
-        ((int)(sectionWidthM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
+    sectionWidthDraftM[sectionEditIndex] =
+        ((int)(sectionWidthDraftM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
@@ -628,29 +634,43 @@ static void section_defaults_cb(lv_event_t *)
     };
 
     for (int i = 0; i < SECTION_COUNT; i++) {
-        sectionWidthM[i] = defaults[i];
+        sectionWidthDraftM[i] = defaults[i];
     }
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
 static void section_save_cb(lv_event_t *)
 {
-    if (!section_widths_valid(sectionWidthM)) {
+    if (!section_widths_valid(sectionWidthDraftM)) {
         set_label_text_if_changed(sectionEditorTotal,
                                   "BLAD: SUMA MUSI WYNOSIC 21.0 m");
         return;
     }
 
-    sectionPrefs.begin("agrosec", false);
+    if (!sectionPrefs.begin("agrosec", false)) {
+        set_label_text_if_changed(sectionEditorTotal, "BLAD ZAPISU - USTAWIENIA BEZ ZMIAN");
+        return;
+    }
+
+    bool saved = true;
     for (int i = 0; i < SECTION_COUNT; i++) {
         char key[8];
         snprintf(key, sizeof(key), "sec%d", i + 1);
-        sectionPrefs.putFloat(key, sectionWidthM[i]);
+        if (sectionPrefs.putFloat(key, sectionWidthDraftM[i]) != sizeof(float)) saved = false;
+    }
+    sectionPrefs.end();
+
+    if (!saved) {
+        set_label_text_if_changed(sectionEditorTotal, "BLAD ZAPISU - USTAWIENIA BEZ ZMIAN");
+        return;
     }
 
-    sectionPrefs.end();
+    memcpy(sectionWidthM, sectionWidthDraftM, sizeof(sectionWidthM));
+    quickWidthsDirty = false;
     section_editor_refresh();
+    ui_update();
 }
 
 
@@ -1426,7 +1446,6 @@ static void dashboard_navigation(lv_obj_t *scr, int selected)
 static lv_obj_t *quickWidths[SECTION_COUNT] = {};
 static lv_obj_t *quickTotal = nullptr, *quickMessage = nullptr;
 static lv_obj_t *quickInputs[32] = {}; static int quickInputCount = 0;
-static bool quickWidthsDirty = false;
 static const char *quickStatus = nullptr;
 static uint32_t quickStatusUntil = 0;
 static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr;
@@ -1448,11 +1467,12 @@ static void close_quick_input()
 static void quick_settings_refresh()
 {
     char text[48];
+    if (!quickWidthsDirty) memcpy(sectionWidthDraftM, sectionWidthM, sizeof(sectionWidthM));
     for (int i=0; i<SECTION_COUNT; ++i) {
-        snprintf(text,sizeof(text),"%.1f",sectionWidthM[i]);
+        snprintf(text,sizeof(text),"%.1f",sectionWidthDraftM[i]);
         set_label_text_if_changed(quickWidths[i],text);
     }
-    snprintf(text,sizeof(text),"BELKA: %.1f m",section_total_width_m());
+    snprintf(text,sizeof(text),"BELKA: %.1f m",section_draft_total_width_m());
     set_label_text_if_changed(quickTotal,text);
     set_label_text_if_changed(quickMessage,bench_test_active() ? "Zakoncz symulacje, aby zmieniac ustawienia." :
         quickStatus && (int32_t)(quickStatusUntil-millis())>0 ? quickStatus :
@@ -1469,9 +1489,9 @@ static void quick_commit_value(float value)
 {
     quickStatus=nullptr;
     if(quickField>=0 && quickField<SECTION_COUNT) {
-        sectionWidthM[quickField]=((int)(value*10+.5f))/10.0f;
+        sectionWidthDraftM[quickField]=((int)(value*10+.5f))/10.0f;
         quickWidthsDirty=true;
-        section_editor_refresh(); refresh_sprayer_scene();
+        section_editor_refresh();
     } else if(quickField==SECTION_COUNT) gState.rateLHa=(int)(value+.5f);
     quick_settings_refresh();
 }
@@ -1535,7 +1555,7 @@ static void quick_open_input_cb(lv_event_t *e)
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
     else if(quickField>SECTION_COUNT) snprintf(quickInitial,sizeof(quickInitial),"%.1f",quickField==SECTION_COUNT+2 ? 0.0f : tank_counter_read().liters);
     else if(quickField==SECTION_COUNT) snprintf(quickInitial,sizeof(quickInitial),"%d",gState.rateLHa);
-    else snprintf(quickInitial,sizeof(quickInitial),"%.1f",sectionWidthM[quickField]);
+    else snprintf(quickInitial,sizeof(quickInitial),"%.1f",sectionWidthDraftM[quickField]);
     quickText=home_text(field,quickInitial,16,14,C_MUTED(),&home_font_24);
     quickError=home_text(quickModal,"Wpisz wartosc i zatwierdz przyciskiem OK.",24,137,C_MUTED(),&lv_font_montserrat_16);
     static const char *keys[]={"7","8","9","COFNIJ","4","5","6","WYCZYSC","1","2","3",".","0","ANULUJ","OK"};
@@ -1556,22 +1576,34 @@ static void quick_width_step_cb(lv_event_t *e)
     const int code=(int)(intptr_t)lv_event_get_user_data(e);
     const int i=abs(code)-1;if(i<0 || i>=SECTION_COUNT)return;
     quickField=i;
-    const int tenths=(int)(sectionWidthM[i]*10+.5f)+(code>0 ? 1 : -1);
+    const int tenths=(int)(sectionWidthDraftM[i]*10+.5f)+(code>0 ? 1 : -1);
     quick_commit_value((tenths<1 ? 1 : tenths>200 ? 200 : tenths)/10.0f);
 }
 static void quick_save_cb(lv_event_t *)
 {
     if(bench_test_active())return;
+    if(!section_widths_valid(sectionWidthDraftM)) {
+        quickStatus="BLAD: suma sekcji musi wynosic 21.0 m. Nie zapisano.";
+        quickStatusUntil=millis()+4000;
+        quick_settings_refresh();
+        return;
+    }
+
     bool ok=sectionPrefs.begin("agrosec",false);
     if(ok) {
         for(int i=0;i<SECTION_COUNT;++i) {
             char key[8];snprintf(key,sizeof(key),"sec%d",i+1);
-            if(sectionPrefs.putFloat(key,sectionWidthM[i])!=sizeof(float)) ok=false;
+            if(sectionPrefs.putFloat(key,sectionWidthDraftM[i])!=sizeof(float)) ok=false;
         }
         sectionPrefs.end();
     }
-    if(ok)quickWidthsDirty=false;
-    quickStatus=ok ? "Szerokosci zapisane." : "Blad zapisu. Sprobuj ponownie.";
+    if(ok) {
+        memcpy(sectionWidthM,sectionWidthDraftM,sizeof(sectionWidthM));
+        quickWidthsDirty=false;
+        section_editor_refresh();
+        refresh_sprayer_scene();
+    }
+    quickStatus=ok ? "Szerokosci zapisane." : "Blad zapisu. Aktywna belka bez zmian.";
     quickStatusUntil=millis()+3000;
     quick_settings_refresh();
 }
@@ -2058,6 +2090,9 @@ static void release_detail_editors()
 
 static void create_section_editor()
 {
+    // Preserve an unsaved draft shared with quick settings; otherwise start from active values.
+    if (!quickWidthsDirty) memcpy(sectionWidthDraftM, sectionWidthM, sizeof(sectionWidthM));
+
     // Lekki edytor jednej sekcji naraz.
     // Created only while this editor is open.
     sectionEditorPanel = panel(
