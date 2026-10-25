@@ -10,6 +10,7 @@ static bool near(float a, float b, float eps = 0.002f) {
 
 int main() {
     using agronozzle::nozzle_flow_from_table;
+using agronozzle::nozzle_target_pressure_from_table;
     int checks = 0;
     auto test = [&](bool condition, const char *name) {
         if (!condition) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
