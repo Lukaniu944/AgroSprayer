@@ -85,6 +85,19 @@ bool valve_auto_pulse(int logicalDirection, uint32_t durationMs, uint32_t genera
     if ((logicalDirection != 1 && logicalDirection != -1) || durationMs < 50 || durationMs > 250) return false;
     return startPulse(logicalDirection * valve_open_direction(),durationMs,false,true,generation);
 }
+
+bool valve_auto_stop_pulse_if_current(uint32_t generation) {
+    portENTER_CRITICAL(&mux);
+    const bool current = generation == autoStopGeneration;
+    if (current) {
+        outputsOff();
+        direction = 0;
+        armed = false;
+        stopped = millis();
+    }
+    portEXIT_CRITICAL(&mux);
+    return current;
+}
 int valve_open_direction() {
     portENTER_CRITICAL(&mux);const int value=openDirection;portEXIT_CRITICAL(&mux);return value;
 }

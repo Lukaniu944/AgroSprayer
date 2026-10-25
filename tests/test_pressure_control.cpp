@@ -257,6 +257,14 @@ int main() {
     test(agrovalve::autoPulseStillValid(4u,4u),"AUTO pulse allowed without intervening STOP");
     test(!agrovalve::autoPulseStillValid(4u,5u),"STOP invalidates pending AUTO pulse");
     test(!agrovalve::autoPulseStillValid(UINT32_MAX,0u),"STOP generation wrap rejects stale pulse");
+    test(agrovalve::autoUpdateStillValid(4u,4u,false),
+         "normal regulator pause does not invalidate unchanged STOP epoch");
+    test(!agrovalve::autoUpdateStillValid(4u,5u,false),
+         "concurrent STOP generation blocks AUTO state publication");
+    test(!agrovalve::autoUpdateStillValid(4u,4u,true),
+         "pending STOP blocks AUTO state publication before generation check");
+    test(!agrovalve::autoUpdateStillValid(UINT32_MAX,0u,false),
+         "wrapped STOP epoch blocks stale AUTO state publication");
     {
         agroaog::Session session;
         test(!session.fresh(true,1000,995,1500),"no AOG packet since boot");

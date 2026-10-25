@@ -13,5 +13,8 @@ bool valve_manual_pulse(int direction); // +1=open, -1=close.
 // Automatic regulation: single pulse <=250ms; mapping follows calibrated A/B.
 uint32_t valve_auto_generation(); // STOP invalidates in-flight AUTO commands.
 bool valve_auto_pulse(int logicalDirection, uint32_t durationMs, uint32_t generation);
+// Stops an AUTO pulse only if no newer STOP has changed the generation.
+// A normal regulator pause does not invalidate the STOP epoch.
+bool valve_auto_stop_pulse_if_current(uint32_t generation);
 int valve_open_direction();
 bool valve_toggle_open_direction(); // Stops the motor, saves the mapping.

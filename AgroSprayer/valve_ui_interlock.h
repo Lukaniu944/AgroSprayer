@@ -7,6 +7,12 @@ namespace agrovalve {
 inline bool autoPulseStillValid(uint32_t sampledGeneration, uint32_t currentGeneration) {
     return sampledGeneration == currentGeneration;
 }
+// The control-loop result may be published only if no STOP raced with it.
+inline bool autoUpdateStillValid(uint32_t sampledGeneration,
+                                 uint32_t currentGeneration,
+                                 bool stopPending) {
+    return sampledGeneration == currentGeneration && !stopPending;
+}
 inline bool shouldStopMotorForUi(bool autoMode, bool benchMode,
                                  bool regulatorArmed, bool motorMoving) {
     return motorMoving && (benchMode || (autoMode && !regulatorArmed));

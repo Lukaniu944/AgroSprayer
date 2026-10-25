@@ -76,7 +76,11 @@ void auto_regulator_update() {
     }
     const agroreg::Input s=snapshot();
     const agroreg::Action a=controller.step(s);
-    if (a.stopMotor) valve_test_stop();
+    // A regulator pause (for example, closed sections) must stop the motor
+    // without advancing the operator-STOP generation and disarming AUTO.
+    if (a.stopMotor && !valve_auto_stop_pulse_if_current(generation)) {
+        controller.disarm();
+    }
     if (a.direction) {
         if (!valve_auto_pulse(a.direction,a.pulseMs,generation)) {
             if (generation != valve_auto_generation()) {
@@ -95,7 +99,9 @@ void auto_regulator_update() {
     // generation check prevents a stale pulse; this final check also prevents
     // the controller/UI state from being republished as armed when no pulse
     // was requested in that iteration.
-    if (!agrovalve::autoPulseStillValid(generation, valve_auto_generation())) {
+    if (!agrovalve::autoUpdateStillValid(
+            generation, valve_auto_generation(),
+            requestStop.load(std::memory_order_acquire))) {
         controller.disarm();
         requestToggle.store(false,std::memory_order_release);
         enabled.store(false,std::memory_order_release);
