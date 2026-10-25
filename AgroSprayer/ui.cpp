@@ -1658,11 +1658,12 @@ static void nozzle_cycle_cb(lv_event_t *e){
     if((intptr_t)lv_event_get_user_data(e)==0){
         const uint8_t requested=nozzleDraft.nozzle^1;
         if(!nozzle_profile_compatible(requested,nozzleDraft.liquid)){
-            nozzleDraft.nozzle=nozzleDraft.liquid==0?0:1;
+            // Keep the current compatible selection; never switch into an invalid profile.
             nozzle_editor_refresh();
             set_label_text_if_changed(nozzleMessage,
                 nozzleDraft.liquid==0 ? "WODA wymaga niebieskiej dyszy 11003." :
-                "RSM 28/30/32 wymaga czerwonej dyszy 04RSM.");
+                nozzleDraft.liquid<4 ? "RSM 28/30/32 wymaga czerwonej dyszy 04RSM." :
+                "CIECZ WLASNA wymaga niebieskiej dyszy 11003.");
             return;
         }
         nozzleDraft.nozzle=requested;
