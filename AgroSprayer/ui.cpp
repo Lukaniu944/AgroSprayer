@@ -15,6 +15,8 @@
 #include "tank_counter.h"
 #include "job_counter.h"
 #include "nozzle_model.h"
+#include "nozzle_profile_compatibility.h"
+#include "auto_regulator.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -47,6 +49,7 @@ static lv_obj_t *lblTarget;
 static lv_obj_t *lblPressure;
 static lv_obj_t *valvePanel = nullptr, *valveStatus = nullptr;
 static lv_obj_t *valvePressure = nullptr;
+static lv_obj_t *valveAutoButton = nullptr, *valveAutoStatus = nullptr;
 static void create_valve_test();
 static void valve_refresh();
 static lv_obj_t *lblTank;
@@ -299,6 +302,7 @@ static void rate_plus_cb(lv_event_t *)
 static void auto_cb(lv_event_t *)
 {
     if (bench_test_active()) return;
+    auto_regulator_stop();
     valve_test_stop();
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = true;
@@ -310,6 +314,7 @@ static void auto_cb(lv_event_t *)
 static void man_cb(lv_event_t *)
 {
     if (bench_test_active()) return;
+    auto_regulator_stop();
     valve_test_stop();
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = false;
@@ -324,7 +329,7 @@ static void manual_valve_cb(lv_event_t *e)
     valve_manual_pulse((int)(intptr_t)lv_event_get_user_data(e));
     ui_update();
 }
-static void manual_valve_stop_cb(lv_event_t *) { valve_test_stop();ui_update(); }
+static void manual_valve_stop_cb(lv_event_t *) { auto_regulator_stop();valve_test_stop();ui_update(); }
 
 static void section_cb(lv_event_t *e)
 {
@@ -1379,7 +1384,7 @@ static lv_obj_t *quickInputs[32] = {}; static int quickInputCount = 0;
 static bool quickWidthsDirty = false;
 static const char *quickStatus = nullptr;
 static uint32_t quickStatusUntil = 0;
-static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr;
+static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr,*nozzleFlowTitle=nullptr;
 static lv_obj_t *nozzleHomeInfo=nullptr;
 static NozzleSettings nozzleDraft;
 static bool nozzleDirty=false;
@@ -1436,10 +1441,10 @@ static void quick_accept_cb(lv_event_t *)
         const float minimum=i==0?.1f:i==1?.8f:1;
         const float maximum=i==0?5:i==1?1.6f:40;
         if(end==text||*end||!std::isfinite(value)||value<minimum||value>maximum||(i>=2&&value!=(int)value)) {
-            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
+            set_label_text_if_changed(quickError,i==0?(nozzleDraft.nozzle?"Zakres: 0.10 - 5.00 L/min (RSM, 3 bar)":"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)"):i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
         }
         if(i==0)nozzleDraft.waterQ3[nozzleDraft.nozzle]=value;
-        else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;}
+        else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;nozzleDraft.nozzle=0;}
         else nozzleDraft.counts[i-2]=(uint8_t)value;
         nozzleDirty=true;close_quick_input();nozzle_editor_refresh();return;
     }
@@ -1479,7 +1484,7 @@ static void quick_open_input_cb(lv_event_t *e)
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
-    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
+    home_text(quickModal,quickField==100 ? (nozzleDraft.nozzle ? "WYDATEK JEDNEJ KONCOWKI - RSM PRZY 3 bar" : "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar") : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
     quickEntry[0]=0;
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
@@ -1637,6 +1642,7 @@ static void nozzle_editor_refresh(){
     set_label_text_if_changed(lv_obj_get_child(nozzleSelect,0),nozzleDraft.nozzle?"KONCOWKA: 04RSM  >":"KONCOWKA: 11003  >");
     const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};
     snprintf(b,sizeof(b),"CIECZ: %s  >",names[nozzleDraft.liquid]);set_label_text_if_changed(lv_obj_get_child(liquidSelect,0),b);
+    set_label_text_if_changed(nozzleFlowTitle,nozzleDraft.nozzle?"WYDATEK RSM PRZY 3 bar":"WYDATEK WODY PRZY 3 bar");
     for(int i=0;i<8;i++){
         if(i==0)snprintf(b,sizeof(b),"%.2f L/min",nozzleDraft.waterQ3[nozzleDraft.nozzle]);
         else if(i==1)snprintf(b,sizeof(b),"%.2f kg/L",nozzleDraft.density);
@@ -1649,9 +1655,35 @@ static void nozzle_editor_refresh(){
 }
 static void nozzle_cycle_cb(lv_event_t *e){
     if(bench_test_active())return;
-    if((intptr_t)lv_event_get_user_data(e)==0)nozzleDraft.nozzle^=1;
-    else {nozzleDraft.liquid=(nozzleDraft.liquid+1)%5;const float rho[]={1,1.28f,1.30f,1.32f};if(nozzleDraft.liquid<4)nozzleDraft.density=rho[nozzleDraft.liquid];}
-    nozzleDirty=true;nozzle_editor_refresh();
+    if((intptr_t)lv_event_get_user_data(e)==0){
+        const uint8_t requested=nozzleDraft.nozzle^1;
+        if(!nozzle_profile_compatible(requested,nozzleDraft.liquid)){
+            // Keep the current compatible selection; never switch into an invalid profile.
+            nozzle_editor_refresh();
+            set_label_text_if_changed(nozzleMessage,
+                nozzleDraft.liquid==0 ? "WODA wymaga niebieskiej dyszy 11003." :
+                nozzleDraft.liquid<4 ? "RSM 28/30/32 wymaga czerwonej dyszy 04RSM." :
+                "CIECZ WLASNA wymaga niebieskiej dyszy 11003.");
+            return;
+        }
+        nozzleDraft.nozzle=requested;
+    } else {
+        nozzleDraft.liquid=(nozzleDraft.liquid+1)%5;
+        const float rho[]={1.0f,1.28f,1.30f,1.32f};
+        if(nozzleDraft.liquid==0){
+            nozzleDraft.nozzle=0;
+            nozzleDraft.density=rho[0];
+        } else if(nozzleDraft.liquid<4){
+            nozzleDraft.nozzle=1;
+            nozzleDraft.density=rho[nozzleDraft.liquid];
+        } else {
+            // Custom liquid uses the water-reference table and entered density.
+            nozzleDraft.nozzle=0;
+            nozzleDraft.density=1.0f;
+        }
+    }
+    nozzleDirty=true;
+    nozzle_editor_refresh();
 }
 static void nozzle_save_cb(lv_event_t *){
     if(nozzle_save(nozzleDraft)){nozzleDirty=false;nozzle_editor_refresh();ui_update();}
@@ -1671,12 +1703,13 @@ static void nozzle_open_cb(lv_event_t *){
     for(int i=0;i<8;i++){
         int x=i<2?20+i*462:20+(i-2)*154;
         int y=i<2?78:182,w=i<2?446:142;
-        home_text(nozzlePanel,names[i],x,y,C_MUTED(),&lv_font_montserrat_16);
+        lv_obj_t *title=home_text(nozzlePanel,names[i],x,y,C_MUTED(),&lv_font_montserrat_16);
+        if(i==0)nozzleFlowTitle=title;
         auto *b=home_control(nozzlePanel,x,y+24,w,48,"--",nullptr);
         lv_obj_add_event_cb(b,quick_open_input_cb,LV_EVENT_CLICKED,(void*)(intptr_t)(100+i));
         nozzleValues[i]=lv_obj_get_child(b,0);
     }
-    home_text(nozzlePanel,"Kalibracja wydatku: wpisz pomiar WODA przy 3 bar. Korekta RSM jest automatyczna.",20,158,C_MUTED(),&lv_font_montserrat_16);
+    home_text(nozzlePanel,"11003: tabela wody; WLASNA - korekta z gestosci. 04RSM: tabela RSM, bez drugiej korekty.",20,158,C_MUTED(),&lv_font_montserrat_16);
     nozzleMessage=home_text(nozzlePanel,"--",20,270,C_GREEN(),&lv_font_montserrat_16);
     home_text(nozzlePanel,"Dawka i litry sa obliczane. Zmiany dzialaja po ZAPISZ; wyjscie odrzuca edycje.",20,297,C_MUTED(),&lv_font_montserrat_16);
     home_control(nozzlePanel,20,330,446,50,"COFNIJ ZMIANY",nozzle_cancel_cb);
@@ -1758,7 +1791,7 @@ void ui_create()
     lv_obj_add_event_cb(doseCard,quick_open_input_cb,LV_EVENT_CLICKED,(void *)(intptr_t)SECTION_COUNT);
     for(uint32_t i=0;i<lv_obj_get_child_count(doseCard);++i)
         lv_obj_set_clickable(lv_obj_get_child(doseCard,i),false);
-    dashboard_metric(scr, 232, "WYDATEK", &lblFlow, "L/min", LV_SYMBOL_TINT);
+    dashboard_metric(scr, 232, "WYDATEK SZAC.", &lblFlow, "L/min", LV_SYMBOL_TINT);
     dashboard_metric(scr, 438, "CISNIENIE", &lblPressure, "bar", LV_SYMBOL_SETTINGS);
     home_text(doseCard,"oblicz.",12,102,C_MUTED(),&lv_font_montserrat_16);
     // A small pencil at the edge makes direct editing discoverable.
@@ -1766,7 +1799,7 @@ void ui_create()
 
     lv_obj_t *compare = panel(scr, 14, 176, 618, 96, C_BORDER());
     home_icon(compare, 16, 5, 20, 1);
-    home_text(compare, "WYDATEK / CEL", 44, 6, C_TEXT(), &home_font_18);
+    home_text(compare, "WYDATEK SZAC. / CEL", 44, 6, C_TEXT(), &home_font_18);
     home_text(compare, "Oblicz.", 12, 43, C_MUTED(), &lv_font_montserrat_16);
     home_text(compare, "Cel", 12, 74, C_MUTED(), &lv_font_montserrat_16);
     flowActualBar = dashboard_bar(compare, 85, 46, C_GREEN());
@@ -1966,9 +1999,11 @@ void ui_create()
 
 static void release_detail_editors()
 {
+    // Navigating away from a panel must never re-energize the motor.
+    auto_regulator_stop();
     close_quick_input();
     if(nozzlePanel)lv_obj_delete(nozzlePanel);
-    nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;for(auto &v:nozzleValues)v=nullptr;
+    nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;nozzleFlowTitle=nullptr;for(auto &v:nozzleValues)v=nullptr;
     if(jobPanel)lv_obj_delete(jobPanel);
     jobPanel=jobStatus=jobPauseButton=jobNewButton=nullptr;
     for(auto &value:jobValues)value=nullptr;jobConfirm=false;
@@ -1983,6 +2018,7 @@ static void release_detail_editors()
         lv_obj_delete(valvePanel);
     }
     valvePanel = valveStatus = valvePressure = valveDirectionButton = nullptr;
+    valveAutoButton = valveAutoStatus = nullptr;
     if (benchPanel) lv_obj_delete(benchPanel);
     benchPanel = benchStatus = benchSpeed = benchFlow = benchTarget = benchReg = benchAuto = nullptr;
     for (int i = 0; i < SECTION_COUNT; ++i) benchSections[i] = nullptr;
@@ -2392,6 +2428,9 @@ static void valve_refresh()
         dir == -1 ? "KIERUNEK B - IMPULS 1 s" :
         valve_test_armed() ? "GOTOWY - WYJSCIE ZATRZYMANE" : "TEST ZABLOKOWANY";
     set_label_text_if_changed(valveStatus, status);
+    if(valveAutoButton) set_label_text_if_changed(lv_obj_get_child(valveAutoButton,0),
+        auto_regulator_armed() ? "AUTO REG: WYLACZ" : "AUTO REG: WLACZ");
+    if(valveAutoStatus) set_label_text_if_changed(valveAutoStatus,auto_regulator_status());
     if(valveDirectionButton) set_label_text_if_changed(lv_obj_get_child(valveDirectionButton,0),
         valve_open_direction()==1 ? "OTWORZ = A | ZAMIEN KIERUNKI" : "OTWORZ = B | ZAMIEN KIERUNKI");
     char text[96];
@@ -2404,16 +2443,17 @@ static void valve_refresh()
 }
 static void valve_direction_cb(lv_event_t *) {
     if(bench_test_active())return;
+    auto_regulator_stop();
     if(!valve_toggle_open_direction()) {set_label_text_if_changed(valveStatus,"BLAD ZAPISU KIERUNKU");return;}
     valve_refresh();
 }
 static void valve_arm_cb(lv_event_t *) {
-    if (!bench_test_active()) valve_test_arm();
+    if (!bench_test_active() && !auto_regulator_armed()) valve_test_arm();
     valve_refresh();
 }
-static void valve_stop_cb(lv_event_t *) { valve_test_stop(); valve_refresh(); }
+static void valve_stop_cb(lv_event_t *) { auto_regulator_stop(); valve_test_stop(); valve_refresh(); }
 static void valve_pulse_cb(lv_event_t *e) {
-    if (!bench_test_active()) valve_test_pulse((int)(intptr_t)lv_event_get_user_data(e));
+    if (!bench_test_active() && !auto_regulator_armed()) valve_test_pulse((int)(intptr_t)lv_event_get_user_data(e));
     valve_refresh();
 }
 static void regulator_editor_refresh() {
@@ -2452,6 +2492,7 @@ static void regulator_save_cb(lv_event_t *) {
 static void regulator_back_cb(lv_event_t *) {release_detail_editors();create_valve_test();}
 static void regulator_open_cb(lv_event_t *) {
     if(bench_test_active())return;
+    auto_regulator_stop();
     release_detail_editors();create_regulator_settings();
 }
 static void create_regulator_settings() {
@@ -2478,8 +2519,14 @@ static void create_regulator_settings() {
     home_control(regulatorPanel,632,315,288,56,"WROC",regulator_back_cb);
     regulator_editor_refresh();
 }
+static void valve_auto_toggle_cb(lv_event_t *) {
+    if(bench_test_active())return;
+    auto_regulator_toggle_request();
+}
 static void create_valve_test()
 {
+    // The manual diagnostic screen takes control only after automatic mode is OFF.
+    auto_regulator_stop();
     valve_test_stop();
     valvePanel = panel(settingsDetailPanel, 12, 12, 952, 396, C_ORANGE());
     valveStatus = label(valvePanel, "TEST ZABLOKOWANY", 24, 18, C_ORANGE());
@@ -2488,7 +2535,10 @@ static void create_valve_test()
     font20(valvePressure);
     lv_obj_t *regSettings=button(valvePanel,24,105,876,62,"USTAWIENIA REGULATORA | impuls / przerwa / tolerancja",regulator_open_cb);
     font20(lv_obj_get_child(regSettings,0));
-    font16(label(valvePanel,"Test mostka: ODBLOKUJ, potem A lub B. Impuls testowy: 1 s.",24,184,C_MUTED()));
+    valveAutoButton=home_control(valvePanel,24,178,432,46,"AUTO REG: WLACZ",valve_auto_toggle_cb);
+    lv_obj_set_style_text_font(lv_obj_get_child(valveAutoButton,0),&home_font_18,0);
+    valveAutoStatus=home_text(valvePanel,"WYLACZONY",472,190,C_ORANGE(),&lv_font_montserrat_16);
+    lv_obj_set_width(valveAutoStatus,428);
     button(valvePanel, 24, 235, 276, 56, "KIERUNEK A - 1 s", valve_pulse_cb, (void *)(intptr_t)1);
     button(valvePanel, 324, 235, 276, 56, "KIERUNEK B - 1 s", valve_pulse_cb, (void *)(intptr_t)-1);
     button(valvePanel, 624, 235, 276, 56, "STOP / BLOKADA", valve_stop_cb);

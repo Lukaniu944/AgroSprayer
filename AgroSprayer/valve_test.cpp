@@ -70,6 +70,10 @@ bool valve_manual_pulse(int requested) {
     if(requested!=1 && requested!=-1)return false;
     return startPulse(requested*valve_open_direction(),250,false);
 }
+bool valve_auto_pulse(int logicalDirection, uint32_t durationMs) {
+    if ((logicalDirection != 1 && logicalDirection != -1) || durationMs < 50 || durationMs > 250) return false;
+    return startPulse(logicalDirection * valve_open_direction(),durationMs,false);
+}
 int valve_open_direction() {
     portENTER_CRITICAL(&mux);const int value=openDirection;portEXIT_CRITICAL(&mux);return value;
 }
