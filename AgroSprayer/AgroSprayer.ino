@@ -33,6 +33,7 @@ void setup() {
     backlight_on();
 
     if(!gt911_begin()) while(true){ Serial.println("BLAD GT911"); delay(1000); }
+
     if(!lvgl_port_begin(panel)) while(true){ Serial.println("BLAD LVGL"); delay(1000); }
 
     if(lvgl_lock()) {
@@ -61,7 +62,8 @@ void loop() {
     if (modelDue || screenDue) {
         // Protect model/UI callbacks with the existing LVGL mutex.
         // Model sampling is scheduled independently of visual refresh.
-        if (lvgl_lock(100)) {
+        // Never wait a full frame for LVGL: pressure/valve control must stay responsive.
+        if (lvgl_lock(5)) {
             if (modelDue) {
                 lastModel = now;
                 ui_update_model();
