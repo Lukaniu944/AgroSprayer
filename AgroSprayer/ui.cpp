@@ -1762,7 +1762,7 @@ void ui_create()
     lv_obj_add_event_cb(doseCard,quick_open_input_cb,LV_EVENT_CLICKED,(void *)(intptr_t)SECTION_COUNT);
     for(uint32_t i=0;i<lv_obj_get_child_count(doseCard);++i)
         lv_obj_set_clickable(lv_obj_get_child(doseCard,i),false);
-    dashboard_metric(scr, 232, "WYDATEK", &lblFlow, "L/min", LV_SYMBOL_TINT);
+    dashboard_metric(scr, 232, "WYDATEK SZAC.", &lblFlow, "L/min", LV_SYMBOL_TINT);
     dashboard_metric(scr, 438, "CISNIENIE", &lblPressure, "bar", LV_SYMBOL_SETTINGS);
     home_text(doseCard,"oblicz.",12,102,C_MUTED(),&lv_font_montserrat_16);
     // A small pencil at the edge makes direct editing discoverable.
@@ -1770,7 +1770,7 @@ void ui_create()
 
     lv_obj_t *compare = panel(scr, 14, 176, 618, 96, C_BORDER());
     home_icon(compare, 16, 5, 20, 1);
-    home_text(compare, "WYDATEK / CEL", 44, 6, C_TEXT(), &home_font_18);
+    home_text(compare, "WYDATEK SZAC. / CEL", 44, 6, C_TEXT(), &home_font_18);
     home_text(compare, "Oblicz.", 12, 43, C_MUTED(), &lv_font_montserrat_16);
     home_text(compare, "Cel", 12, 74, C_MUTED(), &lv_font_montserrat_16);
     flowActualBar = dashboard_bar(compare, 85, 46, C_GREEN());
