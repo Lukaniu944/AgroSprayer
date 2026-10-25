@@ -1,5 +1,6 @@
 #include "valve_test.h"
 #include "board_config.h"
+#include "pressure_sensor.h"
 #include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,7 +17,8 @@ static void outputsOff() {
 static void watchdogTask(void *) {
     for (;;) {
         portENTER_CRITICAL(&mux);
-        if (direction && (uint32_t)(millis() - started) >= pulseDuration) {
+        if (direction && ((uint32_t)(millis() - started) >= pulseDuration ||
+                          !pressure_sensor_valid() || pressure_sensor_overpressure())) {
             outputsOff(); direction = 0; stopped = millis();
         }
         portEXIT_CRITICAL(&mux);
@@ -54,7 +56,8 @@ void valve_test_stop() {
 static bool startPulse(int requested, uint32_t duration, bool requireArm) {
     portENTER_CRITICAL(&mux);
     const uint32_t now = millis();
-    const bool allowed = ready && (!requireArm || armed) && !direction &&
+    const bool pressureSafe = pressure_sensor_valid() && !pressure_sensor_overpressure();
+    const bool allowed = ready && pressureSafe && (!requireArm || armed) && !direction &&
         (requested == 1 || requested == -1) &&
         (uint32_t)(now - stopped) >= 100;
     if (allowed) {
