@@ -16,6 +16,8 @@
 #include "job_counter.h"
 #include "nozzle_model.h"
 #include "auto_regulator.h"
+#include "valve_ui_interlock.h"
+#include "section_width_config.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -101,7 +103,9 @@ static uint32_t flowCalElapsedMs = 0;
 static int flowCalVolumeX10 = 1000; // 100.0 L
 static uint32_t flowCalCandidateX100 = 0;
 
-static float sectionWidthM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
+static float sectionWidthM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f}; // Active configuration
+static float sectionWidthDraftM[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f}; // Editor-only until saved
+static bool quickWidthsDirty = false;
 static Preferences sectionPrefs;
 
 static lv_obj_t *btnSections[SECTION_COUNT];
@@ -167,7 +171,7 @@ static lv_obj_t *panel(
 
     lv_obj_set_pos(o, x, y);
     lv_obj_set_size(o, w, h);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(o, false);
 
     lv_obj_set_style_radius(o, 10, 0);
     lv_obj_set_style_bg_color(o, C_PANEL(), 0);
@@ -303,6 +307,12 @@ static void auto_cb(lv_event_t *)
     if (bench_test_active()) return;
     auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = true;
     prevSectionStateValid=false;
@@ -315,6 +325,12 @@ static void man_cb(lv_event_t *)
     if (bench_test_active()) return;
     auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = false;
     prevSectionStateValid=false;
@@ -344,6 +360,7 @@ static void section_cb(lv_event_t *e)
         return;
     }
 
+    nozzle_section_change_at(millis());
     sprayer_display_state().sections[i] = !sprayer_display_state().sections[i];
 
     // Natychmiastowa reakcja wizualna - bez czekania na ui_update().
@@ -407,6 +424,8 @@ static void all_cb(lv_event_t *)
         }
     }
 
+    // All-on or all-off changes at least one section.
+    nozzle_section_change_at(millis());
     for (int i = 0; i < SECTION_COUNT; i++) {
         sprayer_display_state().sections[i] = anyOff;
 
@@ -431,13 +450,18 @@ static void all_cb(lv_event_t *)
 static float section_total_width_m()
 {
     float total = 0.0f;
-
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        total += sectionWidthM[i];
-    }
-
+    for (int i = 0; i < SECTION_COUNT; i++) total += sectionWidthM[i];
     return total;
 }
+
+static float section_draft_total_width_m()
+{
+    float total = 0.0f;
+    for (int i = 0; i < SECTION_COUNT; i++) total += sectionWidthDraftM[i];
+    return total;
+}
+
+
 
 static lv_obj_t *sectionWidthLabels[SECTION_COUNT] = {};
 
@@ -460,12 +484,12 @@ static void section_editor_refresh()
             buf,
             sizeof(buf),
             "%.1f m",
-            sectionWidthM[sectionEditIndex]
+            sectionWidthDraftM[sectionEditIndex]
         );
         set_label_text_if_changed(sectionEditorValue, buf);
     }
 
-    const float total = section_total_width_m();
+    const float total = section_draft_total_width_m();
 
     if (sectionEditorTotal) {
         snprintf(
@@ -478,12 +502,7 @@ static void section_editor_refresh()
     }
 
     if (lblBoomWidth) {
-        snprintf(
-            buf,
-            sizeof(buf),
-            "BELKA %.1f m",
-            total
-        );
+        snprintf(buf, sizeof(buf), "BELKA %.1f m", section_total_width_m());
         set_label_text_if_changed(lblBoomWidth, buf);
     }
 
@@ -512,24 +531,79 @@ static void section_editor_refresh()
     }
 }
 
-static void section_settings_load()
+static bool section_settings_save(const float *widths)
 {
-    sectionPrefs.begin("agrosec", true);
+    if (!section_width_config::valid(widths, SECTION_COUNT)) return false;
+    if (!sectionPrefs.begin("agrosec", false)) return false;
 
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "sec%d", i + 1);
-
-        float v = sectionPrefs.getFloat(key, sectionWidthM[i]);
-
-        if (v >= 0.1f && v <= 20.0f) {
-            sectionWidthM[i] = v;
-        }
+    // Store the six widths as one NVS blob so a failed save cannot leave a
+    // mixture of old and new per-section keys.
+    const size_t bytes = sizeof(float) * SECTION_COUNT;
+    bool saved = sectionPrefs.putBytes("widths", widths, bytes) == bytes;
+    float verify[SECTION_COUNT] = {};
+    if (saved) {
+        saved = sectionPrefs.getBytesLength("widths") == bytes &&
+                sectionPrefs.getBytes("widths", verify, bytes) == bytes &&
+                section_width_config::valid(verify, SECTION_COUNT) &&
+                memcmp(verify, widths, bytes) == 0;
     }
-
     sectionPrefs.end();
+    return saved;
 }
 
+static void section_settings_load()
+{
+    const float defaults[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
+    float candidate[SECTION_COUNT] = {};
+    bool loaded = false;
+    bool migrateLegacy = false;
+
+    if (sectionPrefs.begin("agrosec", true)) {
+        const size_t bytes = sizeof(candidate);
+        if (sectionPrefs.isKey("widths")) {
+            // A present but invalid blob is treated as corrupt; do not silently
+            // fall back to stale legacy keys.
+            loaded = sectionPrefs.getBytesLength("widths") == bytes &&
+                     sectionPrefs.getBytes("widths", candidate, bytes) == bytes &&
+                     section_width_config::valid(candidate, SECTION_COUNT);
+        } else {
+            // One-time migration from the former six-key format. Require all
+            // six keys so missing entries cannot be mistaken for defaults.
+            bool legacyComplete = true;
+            for (int i = 0; i < SECTION_COUNT; ++i) {
+                char key[8];
+                snprintf(key, sizeof(key), "sec%d", i + 1);
+                if (!sectionPrefs.isKey(key)) {
+                    legacyComplete = false;
+                    break;
+                }
+                candidate[i] = sectionPrefs.getFloat(key, defaults[i]);
+            }
+            loaded = legacyComplete &&
+                     section_width_config::valid(candidate, SECTION_COUNT);
+            migrateLegacy = loaded;
+        }
+        sectionPrefs.end();
+    }
+
+    if (loaded) {
+        memcpy(sectionWidthM, candidate, sizeof(candidate));
+        memcpy(sectionWidthDraftM, candidate, sizeof(candidate));
+        quickWidthsDirty = false;
+        if (migrateLegacy) {
+            // If migration fails, the validated legacy values still work for
+            // this boot; the next boot can retry migration.
+            section_settings_save(candidate);
+        }
+        return;
+    }
+
+    // Invalid or incomplete persisted settings are rejected as one set.
+    memcpy(sectionWidthM, defaults, sizeof(defaults));
+    memcpy(sectionWidthDraftM, defaults, sizeof(defaults));
+    quickWidthsDirty = false;
+    section_settings_save(defaults);
+}
 static void section_prev_cb(lv_event_t *)
 {
     sectionEditIndex--;
@@ -554,29 +628,31 @@ static void section_next_cb(lv_event_t *)
 
 static void section_minus_len_cb(lv_event_t *)
 {
-    sectionWidthM[sectionEditIndex] -= 0.1f;
+    sectionWidthDraftM[sectionEditIndex] -= 0.1f;
 
-    if (sectionWidthM[sectionEditIndex] < 0.1f) {
-        sectionWidthM[sectionEditIndex] = 0.1f;
+    if (sectionWidthDraftM[sectionEditIndex] < 0.1f) {
+        sectionWidthDraftM[sectionEditIndex] = 0.1f;
     }
 
-    sectionWidthM[sectionEditIndex] =
-        ((int)(sectionWidthM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
+    sectionWidthDraftM[sectionEditIndex] =
+        ((int)(sectionWidthDraftM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
 static void section_plus_len_cb(lv_event_t *)
 {
-    sectionWidthM[sectionEditIndex] += 0.1f;
+    sectionWidthDraftM[sectionEditIndex] += 0.1f;
 
-    if (sectionWidthM[sectionEditIndex] > 20.0f) {
-        sectionWidthM[sectionEditIndex] = 20.0f;
+    if (sectionWidthDraftM[sectionEditIndex] > 20.0f) {
+        sectionWidthDraftM[sectionEditIndex] = 20.0f;
     }
 
-    sectionWidthM[sectionEditIndex] =
-        ((int)(sectionWidthM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
+    sectionWidthDraftM[sectionEditIndex] =
+        ((int)(sectionWidthDraftM[sectionEditIndex] * 10.0f + 0.5f)) / 10.0f;
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
@@ -587,24 +663,30 @@ static void section_defaults_cb(lv_event_t *)
     };
 
     for (int i = 0; i < SECTION_COUNT; i++) {
-        sectionWidthM[i] = defaults[i];
+        sectionWidthDraftM[i] = defaults[i];
     }
 
+    quickWidthsDirty = true;
     section_editor_refresh();
 }
 
 static void section_save_cb(lv_event_t *)
 {
-    sectionPrefs.begin("agrosec", false);
-
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "sec%d", i + 1);
-        sectionPrefs.putFloat(key, sectionWidthM[i]);
+    if (!section_width_config::valid(sectionWidthDraftM, SECTION_COUNT)) {
+        set_label_text_if_changed(sectionEditorTotal,
+                                  "BLAD: SUMA MUSI WYNOSIC 21.0 m");
+        return;
     }
 
-    sectionPrefs.end();
+    if (!section_settings_save(sectionWidthDraftM)) {
+        set_label_text_if_changed(sectionEditorTotal, "BLAD ZAPISU - USTAWIENIA BEZ ZMIAN");
+        return;
+    }
+
+    memcpy(sectionWidthM, sectionWidthDraftM, sizeof(sectionWidthM));
+    quickWidthsDirty = false;
     section_editor_refresh();
+    ui_update();
 }
 
 
@@ -808,12 +890,12 @@ static void flow_cal_input_open_cb(lv_event_t *)
     if (flowCalRunning) return;
     flowCalInput[0] = '\0';
     set_label_text_if_changed(flowCalInputLabel, "WPISZ RZECZYWISTE LITRY");
-    lv_obj_clear_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, false);
 }
 
 static void flow_cal_input_cancel_cb(lv_event_t *)
 {
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_input_key_cb(lv_event_t *e)
@@ -843,7 +925,7 @@ static void flow_cal_input_accept_cb(lv_event_t *)
         return;
     }
     flow_cal_set_volume((int)(liters * 10.0 + 0.5));
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_save_cb(lv_event_t *)
@@ -909,8 +991,8 @@ static void settings_detail_cb(lv_event_t *e)
         release_detail_editors();
         set_label_text_if_changed(detailMsg, "Najpierw nacisnij ZAKONCZ TEST w pasku SYMULACJA.");
         set_label_text_if_changed(detailMsg2, "Kalibracja i zapis ustawien wymagaja zakonczenia testu.");
-        lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(detailMsg, false);
+        lv_obj_set_hidden(detailMsg2, false);
         lv_screen_load(scrSettingsDetail);
         return;
     }
@@ -941,33 +1023,33 @@ static void settings_detail_cb(lv_event_t *e)
 
     if (sectionEditorPanel) {
         if (sectionMode) {
-            lv_obj_clear_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, false);
         } else {
-            lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, true);
         }
     }
 
     if (flowCalPanel) {
         if (flowMode) {
-            lv_obj_clear_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, false);
         } else {
-            lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, true);
         }
     }
 
     if (detailMsg) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, true);
         } else {
-            lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, false);
         }
     }
 
     if (detailMsg2) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, true);
         } else {
-            lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, false);
         }
     }
 
@@ -1380,7 +1462,6 @@ static void dashboard_navigation(lv_obj_t *scr, int selected)
 static lv_obj_t *quickWidths[SECTION_COUNT] = {};
 static lv_obj_t *quickTotal = nullptr, *quickMessage = nullptr;
 static lv_obj_t *quickInputs[32] = {}; static int quickInputCount = 0;
-static bool quickWidthsDirty = false;
 static const char *quickStatus = nullptr;
 static uint32_t quickStatusUntil = 0;
 static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr;
@@ -1402,11 +1483,12 @@ static void close_quick_input()
 static void quick_settings_refresh()
 {
     char text[48];
+    if (!quickWidthsDirty) memcpy(sectionWidthDraftM, sectionWidthM, sizeof(sectionWidthM));
     for (int i=0; i<SECTION_COUNT; ++i) {
-        snprintf(text,sizeof(text),"%.1f",sectionWidthM[i]);
+        snprintf(text,sizeof(text),"%.1f",sectionWidthDraftM[i]);
         set_label_text_if_changed(quickWidths[i],text);
     }
-    snprintf(text,sizeof(text),"BELKA: %.1f m",section_total_width_m());
+    snprintf(text,sizeof(text),"BELKA: %.1f m",section_draft_total_width_m());
     set_label_text_if_changed(quickTotal,text);
     set_label_text_if_changed(quickMessage,bench_test_active() ? "Zakoncz symulacje, aby zmieniac ustawienia." :
         quickStatus && (int32_t)(quickStatusUntil-millis())>0 ? quickStatus :
@@ -1423,9 +1505,9 @@ static void quick_commit_value(float value)
 {
     quickStatus=nullptr;
     if(quickField>=0 && quickField<SECTION_COUNT) {
-        sectionWidthM[quickField]=((int)(value*10+.5f))/10.0f;
+        sectionWidthDraftM[quickField]=((int)(value*10+.5f))/10.0f;
         quickWidthsDirty=true;
-        section_editor_refresh(); refresh_sprayer_scene();
+        section_editor_refresh();
     } else if(quickField==SECTION_COUNT) gState.rateLHa=(int)(value+.5f);
     quick_settings_refresh();
 }
@@ -1440,7 +1522,7 @@ static void quick_accept_cb(lv_event_t *)
         const float minimum=i==0?.1f:i==1?.8f:1;
         const float maximum=i==0?5:i==1?1.6f:40;
         if(end==text||*end||!std::isfinite(value)||value<minimum||value>maximum||(i>=2&&value!=(int)value)) {
-            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
+            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (przy 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
         }
         if(i==0)nozzleDraft.waterQ3[nozzleDraft.nozzle]=value;
         else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;}
@@ -1483,13 +1565,13 @@ static void quick_open_input_cb(lv_event_t *e)
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
-    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
+    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
     quickEntry[0]=0;
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
     else if(quickField>SECTION_COUNT) snprintf(quickInitial,sizeof(quickInitial),"%.1f",quickField==SECTION_COUNT+2 ? 0.0f : tank_counter_read().liters);
     else if(quickField==SECTION_COUNT) snprintf(quickInitial,sizeof(quickInitial),"%d",gState.rateLHa);
-    else snprintf(quickInitial,sizeof(quickInitial),"%.1f",sectionWidthM[quickField]);
+    else snprintf(quickInitial,sizeof(quickInitial),"%.1f",sectionWidthDraftM[quickField]);
     quickText=home_text(field,quickInitial,16,14,C_MUTED(),&home_font_24);
     quickError=home_text(quickModal,"Wpisz wartosc i zatwierdz przyciskiem OK.",24,137,C_MUTED(),&lv_font_montserrat_16);
     static const char *keys[]={"7","8","9","COFNIJ","4","5","6","WYCZYSC","1","2","3",".","0","ANULUJ","OK"};
@@ -1510,22 +1592,27 @@ static void quick_width_step_cb(lv_event_t *e)
     const int code=(int)(intptr_t)lv_event_get_user_data(e);
     const int i=abs(code)-1;if(i<0 || i>=SECTION_COUNT)return;
     quickField=i;
-    const int tenths=(int)(sectionWidthM[i]*10+.5f)+(code>0 ? 1 : -1);
+    const int tenths=(int)(sectionWidthDraftM[i]*10+.5f)+(code>0 ? 1 : -1);
     quick_commit_value((tenths<1 ? 1 : tenths>200 ? 200 : tenths)/10.0f);
 }
 static void quick_save_cb(lv_event_t *)
 {
     if(bench_test_active())return;
-    bool ok=sectionPrefs.begin("agrosec",false);
-    if(ok) {
-        for(int i=0;i<SECTION_COUNT;++i) {
-            char key[8];snprintf(key,sizeof(key),"sec%d",i+1);
-            if(sectionPrefs.putFloat(key,sectionWidthM[i])!=sizeof(float)) ok=false;
-        }
-        sectionPrefs.end();
+    if(!section_width_config::valid(sectionWidthDraftM, SECTION_COUNT)) {
+        quickStatus="BLAD: suma sekcji musi wynosic 21.0 m. Nie zapisano.";
+        quickStatusUntil=millis()+4000;
+        quick_settings_refresh();
+        return;
     }
-    if(ok)quickWidthsDirty=false;
-    quickStatus=ok ? "Szerokosci zapisane." : "Blad zapisu. Sprobuj ponownie.";
+
+    const bool ok = section_settings_save(sectionWidthDraftM);
+    if(ok) {
+        memcpy(sectionWidthM,sectionWidthDraftM,sizeof(sectionWidthM));
+        quickWidthsDirty=false;
+        section_editor_refresh();
+        refresh_sprayer_scene();
+    }
+    quickStatus=ok ? "Szerokosci zapisane." : "Blad zapisu. Aktywna belka bez zmian.";
     quickStatusUntil=millis()+3000;
     quick_settings_refresh();
 }
@@ -1648,7 +1735,10 @@ static void nozzle_editor_refresh(){
         set_label_text_if_changed(nozzleValues[i],b);
     }
     int n=0;for(auto count:nozzleDraft.counts)n+=count;
-    snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
+    if(!nozzle_profile_valid(nozzleDraft))
+        snprintf(b,sizeof(b),"NIEZGODNY PROFIL: 11003=WODA/WLASNA, 04RSM=RSM 28/30/32");
+    else
+        snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
     set_label_text_if_changed(nozzleMessage,b);
 }
 static void nozzle_cycle_cb(lv_event_t *e){
@@ -1658,6 +1748,10 @@ static void nozzle_cycle_cb(lv_event_t *e){
     nozzleDirty=true;nozzle_editor_refresh();
 }
 static void nozzle_save_cb(lv_event_t *){
+    if(!nozzle_profile_valid(nozzleDraft)){
+        set_label_text_if_changed(nozzleMessage,"NIEZGODNY PROFIL: 11003=WODA/WLASNA, 04RSM=RSM 28/30/32");
+        return;
+    }
     if(nozzle_save(nozzleDraft)){nozzleDirty=false;nozzle_editor_refresh();ui_update();}
     else set_label_text_if_changed(nozzleMessage,"BLAD ZAPISU - ustawienia nie zostaly zastosowane.");
 }
@@ -1732,7 +1826,7 @@ void ui_create()
 
     lv_obj_set_style_bg_color(scr, C_BG(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scr, false);
 
     // Geometry follows the approved 1024 x 600 dashboard reference.
     lv_obj_t *top = panel(scr, 14, 4, 996, 36, C_BG());
@@ -1762,7 +1856,7 @@ void ui_create()
     lv_obj_add_event_cb(doseCard,quick_open_input_cb,LV_EVENT_CLICKED,(void *)(intptr_t)SECTION_COUNT);
     for(uint32_t i=0;i<lv_obj_get_child_count(doseCard);++i)
         lv_obj_set_clickable(lv_obj_get_child(doseCard,i),false);
-    dashboard_metric(scr, 232, "WYDATEK", &lblFlow, "L/min", LV_SYMBOL_TINT);
+    dashboard_metric(scr, 232, "WYDATEK SZAC.", &lblFlow, "L/min", LV_SYMBOL_TINT);
     dashboard_metric(scr, 438, "CISNIENIE", &lblPressure, "bar", LV_SYMBOL_SETTINGS);
     home_text(doseCard,"oblicz.",12,102,C_MUTED(),&lv_font_montserrat_16);
     // A small pencil at the edge makes direct editing discoverable.
@@ -1876,7 +1970,7 @@ void ui_create()
     scrSettings = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettings, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettings, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettings, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettings, false);
 
     create_quick_settings();
 
@@ -1886,7 +1980,7 @@ void ui_create()
     scrSettingsDetail = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettingsDetail, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettingsDetail, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettingsDetail, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettingsDetail, false);
 
     lv_obj_t *detailTop = panel(
         scrSettingsDetail,
@@ -1946,7 +2040,7 @@ void ui_create()
 
     scrNavigation = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrNavigation, C_BG(), 0);
-    lv_obj_clear_flag(scrNavigation, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrNavigation, false);
     lv_obj_t *navPanel = panel(scrNavigation, 12, 12, 1000, 526, C_BORDER());
     font28(label(navPanel, LV_SYMBOL_GPS "  NAWIGACJA", 24, 20, C_GREEN()));
     font24(label(navPanel, "Podglad mapy wymaga integracji z AgOpenGPS.", 24, 212, C_TEXT()));
@@ -1958,7 +2052,7 @@ void ui_create()
     lv_obj_t *simulationLabel = label(simulationBar, "SYMULACJA", 14, 17, C_ORANGE());
     font20(simulationLabel);
     button(simulationBar, 216, 5, 236, 44, "ZAKONCZ TEST", bench_end_cb);
-    lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(simulationBar, true);
 
 }
 
@@ -2005,6 +2099,9 @@ static void release_detail_editors()
 
 static void create_section_editor()
 {
+    // Preserve an unsaved draft shared with quick settings; otherwise start from active values.
+    if (!quickWidthsDirty) memcpy(sectionWidthDraftM, sectionWidthM, sizeof(sectionWidthM));
+
     // Lekki edytor jednej sekcji naraz.
     // Created only while this editor is open.
     sectionEditorPanel = panel(
@@ -2013,7 +2110,7 @@ static void create_section_editor()
         756, 250,
         C_BLUE()
     );
-    lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(sectionEditorPanel, true);
 
     sectionEditorTitle =
         label(
@@ -2107,7 +2204,7 @@ static void create_flow_calibration()
         836, 340,
         C_GREEN()
     );
-    lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalPanel, true);
 
     flowCalCurrent = label(flowCalPanel, "AKTUALNIE: -- imp/L", 24, 14, C_TEXT());
     font20(flowCalCurrent);
@@ -2142,7 +2239,7 @@ static void create_flow_calibration()
 
     // Persistent keypad: created once, no screen rebuilding during a test.
     flowCalInputPanel = panel(flowCalPanel, 0, 0, 836, 340, C_BLUE());
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(flowCalInputPanel, true);
     flowCalInputLabel = label(flowCalInputPanel, "WPISZ RZECZYWISTE LITRY", 24, 35, C_TEXT());
     font20(flowCalInputLabel);
     label(flowCalInputPanel, "Litry: dokladnosc 0.1 L", 24, 90, C_MUTED());
@@ -2158,7 +2255,7 @@ static void create_flow_calibration()
     lv_obj_set_size(matrix, 324, 300);
     lv_obj_set_style_text_font(matrix, &lv_font_montserrat_20, LV_PART_ITEMS);
     lv_obj_add_event_cb(matrix, flow_cal_input_key_cb, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 
     flow_cal_refresh();
 
@@ -2519,19 +2616,24 @@ static void create_valve_test()
     valve_refresh();
 }
 
-void ui_update()
+void ui_update_model()
 {
+    // No widget updates here. Run at 100 ms, even if visual refresh is not due.
     nozzle_update();
     bench_test_tick();
     tank_counter_update();
     job_counter_update();
+}
+
+void ui_update()
+{
     job_refresh();
     info_refresh();
     char buf[96];
     snprintf(buf,sizeof(buf),"%s | %s  >",nozzle_name(),nozzle_liquid_name());set_label_text_if_changed(homeProfile,buf);
     if (simulationBar) {
-        if (bench_test_active()) lv_obj_clear_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+        if (bench_test_active()) lv_obj_set_hidden(simulationBar, false);
+        else lv_obj_set_hidden(simulationBar, true);
     }
     if (lv_screen_active()==scrSettings) quick_settings_refresh();
     if (benchPanel) bench_refresh();
@@ -2549,8 +2651,14 @@ void ui_update()
 
     set_label_text_if_changed(lblTankPct,tankReading.configured ? (tankReading.saveOk?"Wyliczone":"Blad zapisu") : "Dotknij: ustaw");
     const float wantedPressure=nozzle_target_bar();
-    if(std::isfinite(wantedPressure)&&wantedPressure<=5.5f)snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
-    else snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
+    // Match the displayed AUTO target to pressure_control_core.h: 2.0-4.8 bar.
+    // The nozzle table may calculate higher RSM pressures, but AUTO rejects them.
+    if(std::isfinite(wantedPressure)&&wantedPressure>=2.0f&&wantedPressure<=4.8f)
+        snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
+    else if(std::isfinite(wantedPressure))
+        snprintf(buf,sizeof(buf),"%s\nCel poza zakresem AUTO (2.0-4.8 bar)",nozzle_status());
+    else
+        snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
     set_label_text_if_changed(nozzleHomeInfo,buf);
     // Detail panels above keep updating; hidden home widgets wait until return.
     if (lv_screen_active() != scrHome) return;
@@ -2823,7 +2931,9 @@ void ui_update()
         lv_obj_remove_state(btnMan, LV_STATE_DISABLED);
     }
 
-    if((sprayer_display_state().autoMode || bench_test_active()) && valve_test_direction()!=0) valve_test_stop();
+    if (agrovalve::shouldStopMotorForUi(sprayer_display_state().autoMode,
+                                           bench_test_active(), auto_regulator_armed(),
+                                           valve_test_direction()!=0)) valve_test_stop();
     const bool valveDisabled=sprayer_display_state().autoMode || bench_test_active() || !valve_test_ready();
     for(lv_obj_t *b : {btnValveOpen,btnValveClose}) {
         if(lv_obj_has_state(b,LV_STATE_DISABLED)!=valveDisabled) {

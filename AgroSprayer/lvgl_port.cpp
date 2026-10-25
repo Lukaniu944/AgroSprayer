@@ -119,12 +119,14 @@ static void flush_cb(
     if (xSemaphoreTake(
         s_flush_done,
         pdMS_TO_TICKS(100)
-    ) == pdTRUE) {
-        lv_display_flush_ready(disp);
-    } else {
-        Serial.println("LVGL: RGB flush timeout");
-        lv_display_flush_ready(disp);
+    ) != pdTRUE) {
+        // RGB DMA may still be reading px_map. Keep the LVGL draw buffer
+        // owned by the driver until the completion callback signals us.
+        Serial.println("LVGL: RGB flush timeout; waiting for DMA completion");
+        xSemaphoreTake(s_flush_done, portMAX_DELAY);
     }
+
+    lv_display_flush_ready(disp);
 }
 
 static void touch_cb(

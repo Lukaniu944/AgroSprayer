@@ -1,5 +1,6 @@
 #include "valve_test.h"
 #include "board_config.h"
+#include "valve_ui_interlock.h"
 #include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -9,6 +10,7 @@ static bool ready = false, armed = false;
 static int direction = 0;
 static uint32_t started = 0, stopped = 0, pulseDuration = VALVE_TEST_PULSE_MS;
 static int openDirection = 1;
+static uint32_t autoStopGeneration = 0; // Protected by mux.
 static void outputsOff() {
     gpio_set_level((gpio_num_t)VALVE_IN1_PIN, 0);
     gpio_set_level((gpio_num_t)VALVE_IN2_PIN, 0);
@@ -49,12 +51,15 @@ void valve_test_arm() {
 void valve_test_stop() {
     portENTER_CRITICAL(&mux);
     outputsOff(); direction = 0; armed = false; stopped = millis();
+    ++autoStopGeneration;
     portEXIT_CRITICAL(&mux);
 }
-static bool startPulse(int requested, uint32_t duration, bool requireArm) {
+static bool startPulse(int requested, uint32_t duration, bool requireArm,
+                       bool autoPulse = false, uint32_t generation = 0) {
     portENTER_CRITICAL(&mux);
     const uint32_t now = millis();
     const bool allowed = ready && (!requireArm || armed) && !direction &&
+        (!autoPulse || agrovalve::autoPulseStillValid(generation, autoStopGeneration)) &&
         (requested == 1 || requested == -1) &&
         (uint32_t)(now - stopped) >= 100;
     if (allowed) {
@@ -70,9 +75,28 @@ bool valve_manual_pulse(int requested) {
     if(requested!=1 && requested!=-1)return false;
     return startPulse(requested*valve_open_direction(),250,false);
 }
-bool valve_auto_pulse(int logicalDirection, uint32_t durationMs) {
+uint32_t valve_auto_generation() {
+    portENTER_CRITICAL(&mux);
+    const uint32_t value = autoStopGeneration;
+    portEXIT_CRITICAL(&mux);
+    return value;
+}
+bool valve_auto_pulse(int logicalDirection, uint32_t durationMs, uint32_t generation) {
     if ((logicalDirection != 1 && logicalDirection != -1) || durationMs < 50 || durationMs > 250) return false;
-    return startPulse(logicalDirection * valve_open_direction(),durationMs,false);
+    return startPulse(logicalDirection * valve_open_direction(),durationMs,false,true,generation);
+}
+
+bool valve_auto_stop_pulse_if_current(uint32_t generation) {
+    portENTER_CRITICAL(&mux);
+    const bool current = generation == autoStopGeneration;
+    if (current) {
+        outputsOff();
+        direction = 0;
+        armed = false;
+        stopped = millis();
+    }
+    portEXIT_CRITICAL(&mux);
+    return current;
 }
 int valve_open_direction() {
     portENTER_CRITICAL(&mux);const int value=openDirection;portEXIT_CRITICAL(&mux);return value;

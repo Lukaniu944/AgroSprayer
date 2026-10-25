@@ -29,7 +29,11 @@ struct Action {
 };
 class Controller {
     bool armed_ = false;
+    bool resumePending_ = false, resumeDelay_ = false;
+    uint32_t resumedAt_ = 0;
     uint32_t lastTick_ = 0, lastPulse_ = 0;
+    bool hasLastTick_ = false;
+    bool hasLastPulse_ = false;
     float pressureBefore_ = 0;
     int expectedSign_ = 0, unanswered_ = 0;
     const char *status_ = "WYLACZONY";
@@ -62,7 +66,11 @@ public:
         }
         armed_ = true;
         lastTick_ = in.now;
+        hasLastTick_ = true;
         lastPulse_ = 0;
+        hasLastPulse_ = false;
+        resumePending_ = resumeDelay_ = false;
+        resumedAt_ = 0;
         pressureBefore_ = 0;
         expectedSign_ = unanswered_ = 0;
         status_ = "GOTOWY";
@@ -70,7 +78,10 @@ public:
     }
     void disarm() {
         armed_ = false;
-        lastTick_ = lastPulse_ = 0;
+        lastTick_ = lastPulse_ = resumedAt_ = 0;
+        hasLastTick_ = false;
+        hasLastPulse_ = false;
+        resumePending_ = resumeDelay_ = false;
         expectedSign_ = unanswered_ = 0;
         status_ = "WYLACZONY";
     }
@@ -78,7 +89,7 @@ public:
     Action step(const Input &in) {
         Action out;
         if (!armed_) return out;
-        if (lastTick_ && (uint32_t)(in.now-lastTick_) > 2000) {
+        if (hasLastTick_ && (uint32_t)(in.now-lastTick_) > 2000) {
             fault("PRZERWA PROGRAMU");
             out.stopMotor = true;
             return out;
@@ -90,17 +101,35 @@ public:
             return out;
         }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
-            // Keep arming over headland closures, but never move the motor.
+            // An undefined target is normal when every section is closed or
+            // the tractor is stationary. Pause safely without a motor pulse;
+            // keep link, sensor and pressure faults fatal (checked above).
             status_ = "CZEKAM NA SEKCJE";
+            resumePending_ = true;
+            resumeDelay_ = false;
             lastPulse_ = 0;
+            hasLastPulse_ = false;
             expectedSign_ = unanswered_ = 0;
             out.stopMotor = true;
             return out;
         }
         if (!validTarget(in)) {
+            // Once spraying resumes, an invalid target is always a fault.
             fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
+        }
+        if (resumePending_) {
+            resumePending_ = false;
+            resumeDelay_ = true;
+            resumedAt_ = in.now;
+        }
+        if (resumeDelay_) {
+            if ((uint32_t)(in.now - resumedAt_) < 150) {
+                status_ = "PRZERWA PO SEKCJACH";
+                return out;
+            }
+            resumeDelay_ = false;
         }
         const float error = in.targetBar - in.pressureBar;
         const float tolerance = std::fmax(0.15f,
@@ -108,15 +137,27 @@ public:
         if (std::fabs(error) <= tolerance) {
             status_ = "W CELU";
             expectedSign_ = unanswered_ = 0;
+            // Do not finish an in-flight pulse after pressure reaches target.
+            // The motor watchdog is a fallback; stop as soon as safe pressure is seen.
+            out.stopMotor = in.motorMoving;
             return out;
         }
         if (in.motorMoving) {
             status_ = "RUCH ZAWORU";
             return out;
         }
-        const uint32_t pulse = in.pulseMs < 250 ? in.pulseMs : 250;
-        if (lastPulse_ &&
-            (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
+        // Use the same bounded pulse duration for output and lockout.
+        // A zero/short configured pulse is emitted as 50 ms below, so the
+        // cooldown must account for those 50 ms too.
+        const uint32_t pulse = in.pulseMs < 50 ? 50 :
+                               (in.pulseMs > 250 ? 250 : in.pulseMs);
+        // Widen before adding: pulse + pause must not wrap and accidentally
+        // bypass the valve lockout for extreme/corrupt pause values.
+        const uint64_t cooldownMs = static_cast<uint64_t>(pulse) +
+                                   static_cast<uint64_t>(in.pauseMs);
+        if (hasLastPulse_ &&
+            static_cast<uint64_t>(static_cast<uint32_t>(in.now-lastPulse_)) <
+                cooldownMs) {
             status_ = "PRZERWA PO IMPULSIE";
             return out;
         }
@@ -141,8 +182,9 @@ public:
         // This motor drives the Bypass: closing raises spray pressure.
         // The existing A/B direction swap must first be checked by operator.
         out.direction = desiredSign > 0 ? -1 : 1;
-        out.pulseMs = pulse >= 50 ? pulse : 50;
+        out.pulseMs = pulse;
         lastPulse_ = in.now;
+        hasLastPulse_ = true;
         pressureBefore_ = in.pressureBar;
         expectedSign_ = desiredSign;
         status_ = desiredSign > 0 ? "PODNOSZE CISNIENIE" : "OBNIZAM CISNIENIE";

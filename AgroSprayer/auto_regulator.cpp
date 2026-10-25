@@ -5,6 +5,7 @@
 #include "sprayer_state.h"
 #include "valve_test.h"
 #include "board_config.h"
+#include "valve_ui_interlock.h"
 #include <Arduino.h>
 #include <atomic>
 #include <cmath>
@@ -48,15 +49,24 @@ void auto_regulator_toggle_request() {
 void auto_regulator_stop() {
     requestToggle.store(false,std::memory_order_release);
     requestStop.store(true,std::memory_order_release);
-    enabled.store(false,std::memory_order_release);
+    // Invalidate in-flight AUTO work before publishing the disarmed UI state.
     valve_test_stop();
+    enabled.store(false,std::memory_order_release);
 }
 void auto_regulator_update() {
-    if (requestStop.exchange(false,std::memory_order_acq_rel)) {
+    // Capture the STOP epoch before processing; stale pulses are rejected by the driver.
+    const uint32_t generation = valve_auto_generation();
+    const bool stopRequestedNow =
+        requestStop.exchange(false,std::memory_order_acq_rel);
+    if (stopRequestedNow) {
         controller.disarm();
+        // Discard any toggle already queued when STOP was observed.
+        requestToggle.store(false,std::memory_order_release);
         shownStatus.store(controller.status(),std::memory_order_release);
     }
-    if (requestToggle.exchange(false,std::memory_order_acq_rel)) {
+    const bool toggleRequestedNow =
+        requestToggle.exchange(false,std::memory_order_acq_rel);
+    if (agrovalve::shouldHonorAutoToggle(stopRequestedNow,toggleRequestedNow)) {
         if (controller.armed()) {
             controller.disarm();
             valve_test_stop();
@@ -66,13 +76,35 @@ void auto_regulator_update() {
     }
     const agroreg::Input s=snapshot();
     const agroreg::Action a=controller.step(s);
-    if (a.stopMotor) valve_test_stop();
+    // A regulator pause (for example, closed sections) must stop the motor
+    // without advancing the operator-STOP generation and disarming AUTO.
+    if (a.stopMotor && !valve_auto_stop_pulse_if_current(generation)) {
+        controller.disarm();
+    }
     if (a.direction) {
-        if (!valve_auto_pulse(a.direction,a.pulseMs)) {
-            controller.driverFailed();
-            valve_test_stop();
+        if (!valve_auto_pulse(a.direction,a.pulseMs,generation)) {
+            if (generation != valve_auto_generation()) {
+                // A concurrent operator STOP already disabled the outputs.
+                controller.disarm();
+            } else {
+                controller.driverFailed();
+                valve_test_stop();
+            }
         }
     }
     enabled.store(controller.armed(),std::memory_order_release);
     shownStatus.store(controller.status(),std::memory_order_release);
+
+    // STOP can race after the request flags were sampled. The valve driver's
+    // generation check prevents a stale pulse; this final check also prevents
+    // the controller/UI state from being republished as armed when no pulse
+    // was requested in that iteration.
+    if (!agrovalve::autoUpdateStillValid(
+            generation, valve_auto_generation(),
+            requestStop.load(std::memory_order_acquire))) {
+        controller.disarm();
+        requestToggle.store(false,std::memory_order_release);
+        enabled.store(false,std::memory_order_release);
+        shownStatus.store(controller.status(),std::memory_order_release);
+    }
 }
