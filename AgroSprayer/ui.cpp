@@ -17,6 +17,7 @@
 #include "nozzle_model.h"
 #include "auto_regulator.h"
 #include "valve_ui_interlock.h"
+#include "section_width_config.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -460,18 +461,7 @@ static float section_draft_total_width_m()
     return total;
 }
 
-static bool section_widths_valid(const float *widths)
-{
-    if (!widths) return false;
-    float total = 0.0f;
-    for (int i = 0; i < SECTION_COUNT; ++i) {
-        if (!std::isfinite(widths[i]) || widths[i] < 0.1f || widths[i] > 20.0f)
-            return false;
-        total += widths[i];
-    }
-    // Editable widths are in 0.1 m steps; allow only floating-point rounding.
-    return std::isfinite(total) && std::fabs(total - 21.0f) <= 0.051f;
-}
+
 
 static lv_obj_t *sectionWidthLabels[SECTION_COUNT] = {};
 
@@ -541,40 +531,79 @@ static void section_editor_refresh()
     }
 }
 
+static bool section_settings_save(const float *widths)
+{
+    if (!section_width_config::valid(widths, SECTION_COUNT)) return false;
+    if (!sectionPrefs.begin("agrosec", false)) return false;
+
+    // Store the six widths as one NVS blob so a failed save cannot leave a
+    // mixture of old and new per-section keys.
+    const size_t bytes = sizeof(float) * SECTION_COUNT;
+    bool saved = sectionPrefs.putBytes("widths", widths, bytes) == bytes;
+    float verify[SECTION_COUNT] = {};
+    if (saved) {
+        saved = sectionPrefs.getBytesLength("widths") == bytes &&
+                sectionPrefs.getBytes("widths", verify, bytes) == bytes &&
+                section_width_config::valid(verify, SECTION_COUNT) &&
+                memcmp(verify, widths, bytes) == 0;
+    }
+    sectionPrefs.end();
+    return saved;
+}
+
 static void section_settings_load()
 {
     const float defaults[SECTION_COUNT] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
     float candidate[SECTION_COUNT] = {};
+    bool loaded = false;
+    bool migrateLegacy = false;
 
-    sectionPrefs.begin("agrosec", true);
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "sec%d", i + 1);
-        candidate[i] = sectionPrefs.getFloat(key, defaults[i]);
+    if (sectionPrefs.begin("agrosec", true)) {
+        const size_t bytes = sizeof(candidate);
+        if (sectionPrefs.isKey("widths")) {
+            // A present but invalid blob is treated as corrupt; do not silently
+            // fall back to stale legacy keys.
+            loaded = sectionPrefs.getBytesLength("widths") == bytes &&
+                     sectionPrefs.getBytes("widths", candidate, bytes) == bytes &&
+                     section_width_config::valid(candidate, SECTION_COUNT);
+        } else {
+            // One-time migration from the former six-key format. Require all
+            // six keys so missing entries cannot be mistaken for defaults.
+            bool legacyComplete = true;
+            for (int i = 0; i < SECTION_COUNT; ++i) {
+                char key[8];
+                snprintf(key, sizeof(key), "sec%d", i + 1);
+                if (!sectionPrefs.isKey(key)) {
+                    legacyComplete = false;
+                    break;
+                }
+                candidate[i] = sectionPrefs.getFloat(key, defaults[i]);
+            }
+            loaded = legacyComplete &&
+                     section_width_config::valid(candidate, SECTION_COUNT);
+            migrateLegacy = loaded;
+        }
+        sectionPrefs.end();
     }
-    sectionPrefs.end();
 
-    if (section_widths_valid(candidate)) {
+    if (loaded) {
         memcpy(sectionWidthM, candidate, sizeof(candidate));
         memcpy(sectionWidthDraftM, candidate, sizeof(candidate));
         quickWidthsDirty = false;
+        if (migrateLegacy) {
+            // If migration fails, the validated legacy values still work for
+            // this boot; the next boot can retry migration.
+            section_settings_save(candidate);
+        }
         return;
     }
 
-    // Reject partially corrupt or old settings as a set; never run with a
-    // stored boom width that disagrees with the fixed 21.0 m implement.
+    // Invalid or incomplete persisted settings are rejected as one set.
     memcpy(sectionWidthM, defaults, sizeof(defaults));
     memcpy(sectionWidthDraftM, defaults, sizeof(defaults));
     quickWidthsDirty = false;
-    sectionPrefs.begin("agrosec", false);
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "sec%d", i + 1);
-        sectionPrefs.putFloat(key, defaults[i]);
-    }
-    sectionPrefs.end();
+    section_settings_save(defaults);
 }
-
 static void section_prev_cb(lv_event_t *)
 {
     sectionEditIndex--;
@@ -643,26 +672,13 @@ static void section_defaults_cb(lv_event_t *)
 
 static void section_save_cb(lv_event_t *)
 {
-    if (!section_widths_valid(sectionWidthDraftM)) {
+    if (!section_width_config::valid(sectionWidthDraftM, SECTION_COUNT)) {
         set_label_text_if_changed(sectionEditorTotal,
                                   "BLAD: SUMA MUSI WYNOSIC 21.0 m");
         return;
     }
 
-    if (!sectionPrefs.begin("agrosec", false)) {
-        set_label_text_if_changed(sectionEditorTotal, "BLAD ZAPISU - USTAWIENIA BEZ ZMIAN");
-        return;
-    }
-
-    bool saved = true;
-    for (int i = 0; i < SECTION_COUNT; i++) {
-        char key[8];
-        snprintf(key, sizeof(key), "sec%d", i + 1);
-        if (sectionPrefs.putFloat(key, sectionWidthDraftM[i]) != sizeof(float)) saved = false;
-    }
-    sectionPrefs.end();
-
-    if (!saved) {
+    if (!section_settings_save(sectionWidthDraftM)) {
         set_label_text_if_changed(sectionEditorTotal, "BLAD ZAPISU - USTAWIENIA BEZ ZMIAN");
         return;
     }
@@ -1582,21 +1598,14 @@ static void quick_width_step_cb(lv_event_t *e)
 static void quick_save_cb(lv_event_t *)
 {
     if(bench_test_active())return;
-    if(!section_widths_valid(sectionWidthDraftM)) {
+    if(!section_width_config::valid(sectionWidthDraftM, SECTION_COUNT)) {
         quickStatus="BLAD: suma sekcji musi wynosic 21.0 m. Nie zapisano.";
         quickStatusUntil=millis()+4000;
         quick_settings_refresh();
         return;
     }
 
-    bool ok=sectionPrefs.begin("agrosec",false);
-    if(ok) {
-        for(int i=0;i<SECTION_COUNT;++i) {
-            char key[8];snprintf(key,sizeof(key),"sec%d",i+1);
-            if(sectionPrefs.putFloat(key,sectionWidthDraftM[i])!=sizeof(float)) ok=false;
-        }
-        sectionPrefs.end();
-    }
+    const bool ok = section_settings_save(sectionWidthDraftM);
     if(ok) {
         memcpy(sectionWidthM,sectionWidthDraftM,sizeof(sectionWidthM));
         quickWidthsDirty=false;

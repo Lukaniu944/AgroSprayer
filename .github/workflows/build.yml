@@ -16,6 +16,10 @@ jobs:
           /tmp/agrosprayer-pressure-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-test
           /tmp/agrosprayer-section-volume-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_section_width_config.cpp -o /tmp/agrosprayer-section-width-config-test
+          /tmp/agrosprayer-section-width-config-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_section_width_config.cpp -o /tmp/agrosprayer-section-width-config-ubsan
+          /tmp/agrosprayer-section-width-config-ubsan
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-ubsan
           /tmp/agrosprayer-section-volume-ubsan
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_nozzle_calibration.cpp -o /tmp/agrosprayer-nozzle-calibration-test
