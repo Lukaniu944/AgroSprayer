@@ -42,11 +42,9 @@ float nozzle_flow(float bar,const NozzleSettings &s){
         bar, s.nozzle, s.liquid, s.waterQ3[s.nozzle], s.density);
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
-    if(!std::isfinite(total)||total<=0||count<=0)return NAN;
-    float low=2,high=s.nozzle?6:4,q=total/count;
-    if(q<nozzle_flow(low,s)||q>nozzle_flow(high,s))return NAN;
-    for(int i=0;i<24;i++){float mid=(low+high)/2;if(nozzle_flow(mid,s)<q)low=mid;else high=mid;}
-    return (low+high)/2;
+    if(!validSettings(s))return NAN;
+    return agronozzle::nozzle_target_pressure_from_table(
+        total,count,s.nozzle,s.liquid,s.waterQ3[s.nozzle],s.density);
 }
 float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
 void nozzle_update(){

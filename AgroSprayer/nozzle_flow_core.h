@@ -59,4 +59,37 @@ inline float nozzle_flow_from_table(float bar, uint8_t nozzle, uint8_t liquid,
            customDensityCorrection / rsmCorrection;
 }
 
+
+// Return a target pressure only when the requested per-nozzle flow is reachable
+// inside the automatic regulator's supported range. The 04RSM flow table goes
+// to 6 bar, but the controller intentionally limits its target to 4.8 bar
+// (it trips at 5 bar); never display a higher value as an achievable AUTO target.
+inline float nozzle_target_pressure_from_table(float totalLpm, int nozzleCount,
+                                                uint8_t nozzle, uint8_t liquid,
+                                                float calibratedQ3, float density)
+{
+    const float invalid = std::numeric_limits<float>::quiet_NaN();
+    if (!std::isfinite(totalLpm) || totalLpm <= 0.0f || nozzleCount <= 0)
+        return invalid;
+
+    const float low = 2.0f;
+    const float high = nozzle == 0 ? 4.0f : 4.8f;
+    const float requested = totalLpm / static_cast<float>(nozzleCount);
+    const float minFlow = nozzle_flow_from_table(low, nozzle, liquid, calibratedQ3, density);
+    const float maxFlow = nozzle_flow_from_table(high, nozzle, liquid, calibratedQ3, density);
+    if (!std::isfinite(minFlow) || !std::isfinite(maxFlow) ||
+        requested < minFlow || requested > maxFlow)
+        return invalid;
+
+    float lo = low, hi = high;
+    for (int i = 0; i < 24; ++i) {
+        const float mid = (lo + hi) * 0.5f;
+        const float flow = nozzle_flow_from_table(mid, nozzle, liquid, calibratedQ3, density);
+        if (!std::isfinite(flow)) return invalid;
+        if (flow < requested) lo = mid;
+        else hi = mid;
+    }
+    return (lo + hi) * 0.5f;
+}
+
 } // namespace agronozzle

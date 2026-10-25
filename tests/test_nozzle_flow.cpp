@@ -51,6 +51,18 @@ int main() {
          "custom liquid cannot use RSM table");
     test(!std::isfinite(nozzle_flow_from_table(3.0f,0,0,1.18f,NAN)),
          "invalid density");
+    test(near(nozzle_target_pressure_from_table(1.18f,1,0,0,1.18f,1.0f),3.0f,0.001f),
+         "11003 target pressure inversion at 3 bar");
+    const float rsm30At48 = nozzle_flow_from_table(4.8f,1,2,1.54f,1.30f);
+    test(near(nozzle_target_pressure_from_table(rsm30At48,1,1,2,1.54f,1.30f),4.8f,0.001f),
+         "RSM target pressure capped at 4.8 bar");
+    test(!std::isfinite(nozzle_target_pressure_from_table(
+             nozzle_flow_from_table(5.0f,1,2,1.54f,1.30f),1,1,2,1.54f,1.30f)),
+         "RSM target beyond AUTO limit rejected");
+    test(!std::isfinite(nozzle_target_pressure_from_table(1.40f,1,0,0,1.18f,1.0f)),
+         "11003 target above 4 bar table rejected");
+    test(!std::isfinite(nozzle_target_pressure_from_table(5.0f,0,1,2,1.54f,1.30f)),
+         "zero nozzle count rejected");
     std::cout << "OK: " << checks << " nozzle-flow assertions passed\n";
     return 0;
 }
