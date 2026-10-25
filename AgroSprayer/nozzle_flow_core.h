@@ -6,9 +6,11 @@
 
 namespace agronozzle {
 
-// The blue 11003 values are a water table. The user's red 04RSM values are
-// already RSM flow, so applying sqrt(density) to 04RSM would correct twice.
-// A custom liquid uses the water-reference 11003 table and density correction.
+// The manufacturer's 04RSM table is labelled "Wasser Ausbringung" (water
+// output). Its footnote specifies correction factors for RSM 28/30/32:
+// 1.13 / 1.14 / 1.15. Convert the water-reference flow to actual RSM flow by
+// dividing by that factor. Do not use sqrt(density) as well: that would apply
+// the same density correction twice. A custom liquid on 11003 uses sqrt(density).
 inline float nozzle_flow_from_table(float bar, uint8_t nozzle, uint8_t liquid,
                                     float calibratedQ3, float density)
 {
@@ -45,9 +47,16 @@ inline float nozzle_flow_from_table(float bar, uint8_t nozzle, uint8_t liquid,
     }
 
     const float referenceQ3 = nozzle == 0 ? 1.18f : 1.54f;
-    const float densityCorrection = (nozzle == 0 && liquid == 4)
+    float rsmCorrection = 1.0f;
+    if (nozzle == 1) {
+        if (liquid == 1) rsmCorrection = 1.13f;      // RSM 28
+        else if (liquid == 2) rsmCorrection = 1.14f; // RSM 30
+        else if (liquid == 3) rsmCorrection = 1.15f; // RSM 32
+    }
+    const float customDensityCorrection = (nozzle == 0 && liquid == 4)
         ? std::sqrt(density) : 1.0f;
-    return q * calibratedQ3 / referenceQ3 / densityCorrection;
+    return q * calibratedQ3 / referenceQ3 /
+           customDensityCorrection / rsmCorrection;
 }
 
 } // namespace agronozzle
