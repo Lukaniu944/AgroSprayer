@@ -1856,7 +1856,7 @@ void ui_create()
     lv_obj_add_event_cb(doseCard,quick_open_input_cb,LV_EVENT_CLICKED,(void *)(intptr_t)SECTION_COUNT);
     for(uint32_t i=0;i<lv_obj_get_child_count(doseCard);++i)
         lv_obj_set_clickable(lv_obj_get_child(doseCard,i),false);
-    dashboard_metric(scr, 232, "WYDATEK", &lblFlow, "L/min", LV_SYMBOL_TINT);
+    dashboard_metric(scr, 232, "WYDATEK SZAC.", &lblFlow, "L/min", LV_SYMBOL_TINT);
     dashboard_metric(scr, 438, "CISNIENIE", &lblPressure, "bar", LV_SYMBOL_SETTINGS);
     home_text(doseCard,"oblicz.",12,102,C_MUTED(),&lv_font_montserrat_16);
     // A small pencil at the edge makes direct editing discoverable.
