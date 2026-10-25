@@ -27,9 +27,12 @@ int main()
     const float tooWide[6] = {20.1f, 0.1f, 0.1f, 0.1f, 0.1f, 0.1f};
     assert(!section_width_config::valid(tooWide, 6));
 
-    const float roundingOk[6] = {2.55f, 4.0f, 4.0f, 4.0f, 4.0f, 2.45f};
+    const float roundingOk[6] = {2.6f, 4.0f, 4.0f, 4.0f, 4.0f, 2.4f};
     assert(section_width_config::valid(roundingOk, 6));
 
-    const float roundingBad[6] = {2.55f, 4.0f, 4.0f, 4.0f, 4.0f, 2.502f};
+    const float offGrid[6] = {2.54f, 4.0f, 4.0f, 4.0f, 4.0f, 2.46f};
+    assert(!section_width_config::valid(offGrid, 6));
+
+    const float roundingBad[6] = {2.6f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
     assert(!section_width_config::valid(roundingBad, 6));
 }

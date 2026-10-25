@@ -16,11 +16,19 @@ inline bool valid(const float *widths, std::size_t count)
     for (std::size_t i = 0; i < count; ++i) {
         if (!std::isfinite(widths[i]) || widths[i] < 0.1f || widths[i] > 20.0f)
             return false;
+
+        // The UI edits widths in 0.1 m steps. Reject off-grid persisted values
+        // so displayed widths and the values used for dose calculations agree.
+        const float decimeters = widths[i] * 10.0f;
+        if (!std::isfinite(decimeters) ||
+            std::fabs(decimeters - std::round(decimeters)) > 0.001f)
+            return false;
+
         total += widths[i];
     }
 
     // Widths are edited in 0.1 m steps; this tolerance only covers float rounding.
-    return std::isfinite(total) && std::fabs(total - 21.0f) <= 0.051f;
+    return std::isfinite(total) && std::fabs(total - 21.0f) <= 0.001f;
 }
 
 } // namespace section_width_config
