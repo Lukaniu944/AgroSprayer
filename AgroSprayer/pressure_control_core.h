@@ -10,6 +10,7 @@ struct Input {
     bool autoMode = false;
     bool connected = false;
     bool sensorValid = false;
+    bool pressureTrip = false;
     bool driverReady = false;
     bool benchMode = false;
     bool sectionsOpen = false;
@@ -39,7 +40,7 @@ class Controller {
         expectedSign_ = unanswered_ = 0;
     }
     bool validBasic(const Input &in) const {
-        return in.autoMode && in.connected && in.sensorValid &&
+        return in.autoMode && in.connected && in.sensorValid && !in.pressureTrip &&
                in.driverReady && !in.benchMode &&
                std::isfinite(in.pressureBar) && in.pressureBar >= 0.5f &&
                in.pressureBar < 5.0f;
@@ -84,6 +85,11 @@ public:
             return out;
         }
         lastTick_ = in.now;
+        if (in.pressureTrip) {
+            fault("STOP: NAD CISNIENIE");
+            out.stopMotor = true;
+            return out;
+        }
         if (!validBasic(in)) {
             fault("STOP: AOG / CZUJNIK / TRYB / CISNIENIE");
             out.stopMotor = true;
