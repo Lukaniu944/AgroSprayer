@@ -49,8 +49,9 @@ void auto_regulator_toggle_request() {
 void auto_regulator_stop() {
     requestToggle.store(false,std::memory_order_release);
     requestStop.store(true,std::memory_order_release);
-    enabled.store(false,std::memory_order_release);
+    // Invalidate in-flight AUTO work before publishing the disarmed UI state.
     valve_test_stop();
+    enabled.store(false,std::memory_order_release);
 }
 void auto_regulator_update() {
     // Capture the STOP epoch before processing; stale pulses are rejected by the driver.
@@ -89,4 +90,15 @@ void auto_regulator_update() {
     }
     enabled.store(controller.armed(),std::memory_order_release);
     shownStatus.store(controller.status(),std::memory_order_release);
+
+    // STOP can race after the request flags were sampled. The valve driver's
+    // generation check prevents a stale pulse; this final check also prevents
+    // the controller/UI state from being republished as armed when no pulse
+    // was requested in that iteration.
+    if (!agrovalve::autoPulseStillValid(generation, valve_auto_generation())) {
+        controller.disarm();
+        requestToggle.store(false,std::memory_order_release);
+        enabled.store(false,std::memory_order_release);
+        shownStatus.store(controller.status(),std::memory_order_release);
+    }
 }
