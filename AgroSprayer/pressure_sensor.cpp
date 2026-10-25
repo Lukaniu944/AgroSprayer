@@ -8,6 +8,7 @@ static i2c_master_dev_handle_t device = nullptr;
 static bool pending = false, filtered = false;
 static std::atomic<bool> valid{false};
 static std::atomic<bool> overpressureTrip{false};
+static constexpr float PRESSURE_TRIP_BAR = 4.9f;
 static uint32_t started = 0, attempted = 0;
 static std::atomic<uint32_t> lastGood{0};
 static uint32_t retryMs = 0;
