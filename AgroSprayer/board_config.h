@@ -50,7 +50,12 @@
 #define FLOW_CALC_INTERVAL_MS 500
 
 #define SECTION_COUNT 6
-static const uint8_t SECTION_WIDTH_DM[SECTION_COUNT] = {25, 40, 40, 40, 40, 25};
+static constexpr uint8_t SECTION_WIDTH_DM[SECTION_COUNT] = {25, 40, 40, 40, 40, 25};
+static_assert(SECTION_COUNT == 6, "AgroSprayer requires exactly six boom sections");
+static_assert(SECTION_WIDTH_DM[0] + SECTION_WIDTH_DM[1] +
+              SECTION_WIDTH_DM[2] + SECTION_WIDTH_DM[3] +
+              SECTION_WIDTH_DM[4] + SECTION_WIDTH_DM[5] == 210,
+              "Six section widths must total 21.0 m (210 dm)");
 
 #define DEFAULT_RATE_L_HA 200
 #define RATE_TOLERANCE_PERCENT 10
