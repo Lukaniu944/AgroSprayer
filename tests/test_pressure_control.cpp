@@ -246,6 +246,14 @@ int main() {
          "manual mode permits manual valve pulse");
     test(!agrovalve::shouldStopMotorForUi(true,false,false,false),
          "stationary motor requires no redundant stop");
+    test(agrovalve::shouldHonorAutoToggle(false,true),
+         "AUTO toggle is honored when no STOP is pending");
+    test(!agrovalve::shouldHonorAutoToggle(true,true),
+         "STOP dominates a queued AUTO toggle in the same loop pass");
+    test(!agrovalve::shouldHonorAutoToggle(true,false),
+         "STOP remains dominant when no toggle is queued");
+    test(!agrovalve::shouldHonorAutoToggle(false,false),
+         "no toggle request never arms AUTO");
     test(agrovalve::autoPulseStillValid(4u,4u),"AUTO pulse allowed without intervening STOP");
     test(!agrovalve::autoPulseStillValid(4u,5u),"STOP invalidates pending AUTO pulse");
     test(!agrovalve::autoPulseStillValid(UINT32_MAX,0u),"STOP generation wrap rejects stale pulse");

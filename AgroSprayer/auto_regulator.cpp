@@ -5,6 +5,7 @@
 #include "sprayer_state.h"
 #include "valve_test.h"
 #include "board_config.h"
+#include "valve_ui_interlock.h"
 #include <Arduino.h>
 #include <atomic>
 #include <cmath>
@@ -54,11 +55,17 @@ void auto_regulator_stop() {
 void auto_regulator_update() {
     // Capture the STOP epoch before processing; stale pulses are rejected by the driver.
     const uint32_t generation = valve_auto_generation();
-    if (requestStop.exchange(false,std::memory_order_acq_rel)) {
+    const bool stopRequestedNow =
+        requestStop.exchange(false,std::memory_order_acq_rel);
+    if (stopRequestedNow) {
         controller.disarm();
+        // Discard any toggle already queued when STOP was observed.
+        requestToggle.store(false,std::memory_order_release);
         shownStatus.store(controller.status(),std::memory_order_release);
     }
-    if (requestToggle.exchange(false,std::memory_order_acq_rel)) {
+    const bool toggleRequestedNow =
+        requestToggle.exchange(false,std::memory_order_acq_rel);
+    if (agrovalve::shouldHonorAutoToggle(stopRequestedNow,toggleRequestedNow)) {
         if (controller.armed()) {
             controller.disarm();
             valve_test_stop();

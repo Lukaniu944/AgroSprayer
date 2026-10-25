@@ -11,4 +11,8 @@ inline bool shouldStopMotorForUi(bool autoMode, bool benchMode,
                                  bool regulatorArmed, bool motorMoving) {
     return motorMoving && (benchMode || (autoMode && !regulatorArmed));
 }
+// A queued STOP must dominate an AUTO toggle consumed in the same loop pass.
+inline bool shouldHonorAutoToggle(bool stopRequested, bool toggleRequested) {
+    return toggleRequested && !stopRequested;
+}
 } // namespace agrovalve
