@@ -30,6 +30,10 @@ jobs:
           /tmp/agrosprayer-aog-link-guard-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_aog_link_guard.cpp -o /tmp/agrosprayer-aog-link-guard-ubsan
           /tmp/agrosprayer-aog-link-guard-ubsan
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_sensor_math.cpp -o /tmp/agrosprayer-pressure-sensor-math-test
+          /tmp/agrosprayer-pressure-sensor-math-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_pressure_sensor_math.cpp -o /tmp/agrosprayer-pressure-sensor-math-ubsan
+          /tmp/agrosprayer-pressure-sensor-math-ubsan
 
   esp32-build:
     runs-on: ubuntu-latest
