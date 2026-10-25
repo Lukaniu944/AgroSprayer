@@ -5,6 +5,8 @@
 
 static i2c_master_dev_handle_t device = nullptr;
 static bool pending = false, valid = false, filtered = false;
+static volatile bool overpressureTrip = false;
+static constexpr float PRESSURE_TRIP_BAR = 4.9f;
 static uint32_t started = 0, attempted = 0, lastGood = 0;
 static uint32_t retryMs = 0;
 static float bar = 0;
@@ -23,6 +25,7 @@ static void busError() {
 }
 void pressure_sensor_begin() {
     pending = valid = filtered = false;
+    overpressureTrip = false;
     signalMv = -1;
     retryMs = 0;
     attempted = millis() - PRESSURE_INTERVAL_MS;
@@ -64,6 +67,8 @@ void pressure_sensor_update() {
     }
     float measuredBar = (sensorV - PRESSURE_ZERO_V) / (PRESSURE_FULL_V - PRESSURE_ZERO_V)
                         * PRESSURE_MAX_PSI * 0.0689475729f;
+    // Trip on the unfiltered measurement so the display smoothing cannot delay shutdown.
+    if (measuredBar >= PRESSURE_TRIP_BAR) overpressureTrip = true;
     const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
     if (measuredBar < 0) measuredBar = 0;
     if (measuredBar > maxBar) measuredBar = maxBar;
@@ -74,5 +79,6 @@ void pressure_sensor_update() {
 bool pressure_sensor_valid() {
     return valid && (uint32_t)(millis() - lastGood) <= 1000;
 }
+bool pressure_sensor_overpressure() { return overpressureTrip; }
 int pressure_sensor_bar_x10() { return (int)lroundf(bar * 10.0f); }
 int pressure_sensor_signal_mv() { return signalMv; }
