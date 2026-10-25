@@ -1,4 +1,4 @@
-#include "section_width_config.h"
+#include "../AgroSprayer/section_width_config.h"
 
 #include <cassert>
 #include <limits>
