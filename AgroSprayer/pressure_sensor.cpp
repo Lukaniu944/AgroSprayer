@@ -2,12 +2,14 @@
 #include "board_config.h"
 #include "hw_i2c.h"
 #include <math.h>
+#include <atomic>
 
 static i2c_master_dev_handle_t device = nullptr;
-static bool pending = false, valid = false, filtered = false;
-static volatile bool overpressureTrip = false;
-static constexpr float PRESSURE_TRIP_BAR = 4.9f;
-static uint32_t started = 0, attempted = 0, lastGood = 0;
+static bool pending = false, filtered = false;
+static std::atomic<bool> valid{false};
+static std::atomic<bool> overpressureTrip{false};
+static uint32_t started = 0, attempted = 0;
+static std::atomic<uint32_t> lastGood{0};
 static uint32_t retryMs = 0;
 static float bar = 0;
 static int signalMv = -1;
@@ -19,13 +21,17 @@ static bool readRegister(uint8_t reg, uint16_t &value) {
     return true;
 }
 static void busError() {
-    pending = valid = filtered = false;
+    pending = false;
+    valid.store(false, std::memory_order_release);
+    filtered = false;
     signalMv = -1;
     retryMs = 2000;
 }
 void pressure_sensor_begin() {
-    pending = valid = filtered = false;
-    overpressureTrip = false;
+    pending = false;
+    valid.store(false, std::memory_order_release);
+    filtered = false;
+    overpressureTrip.store(false, std::memory_order_release);
     signalMv = -1;
     retryMs = 0;
     attempted = millis() - PRESSURE_INTERVAL_MS;
@@ -33,7 +39,12 @@ void pressure_sensor_begin() {
 }
 void pressure_sensor_update() {
     const uint32_t now = millis();
-    if (valid && (uint32_t)(now - lastGood) > 1000) valid = filtered = false;
+    if (valid.load(std::memory_order_acquire) &&
+        (uint32_t)(now - lastGood.load(std::memory_order_acquire)) > 1000) {
+        // Keep the validity timeout authoritative in pressure_sensor_valid().
+        // Reset smoothing after a gap without racing the watchdog task.
+        filtered = false;
+    }
     if (!pending) {
         const uint32_t interval = retryMs ? retryMs : PRESSURE_INTERVAL_MS;
         if ((uint32_t)(now - attempted) < interval) return;
@@ -62,23 +73,29 @@ void pressure_sensor_update() {
     const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
     signalMv = (int)lroundf(sensorV * 1000.0f);
     if (!isfinite(sensorV) || sensorV < PRESSURE_VALID_MIN_V || sensorV > PRESSURE_VALID_MAX_V) {
-        valid = filtered = false;
+        valid.store(false, std::memory_order_release);
+        filtered = false;
         return;
     }
     float measuredBar = (sensorV - PRESSURE_ZERO_V) / (PRESSURE_FULL_V - PRESSURE_ZERO_V)
                         * PRESSURE_MAX_PSI * 0.0689475729f;
     // Trip on the unfiltered measurement so the display smoothing cannot delay shutdown.
-    if (measuredBar >= PRESSURE_TRIP_BAR) overpressureTrip = true;
+    if (measuredBar >= PRESSURE_TRIP_BAR) overpressureTrip.store(true, std::memory_order_release);
     const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
     if (measuredBar < 0) measuredBar = 0;
     if (measuredBar > maxBar) measuredBar = maxBar;
     bar = filtered ? bar + 0.25f * (measuredBar - bar) : measuredBar;
-    filtered = valid = true;
-    lastGood = now;
+    filtered = true;
+    lastGood.store(now, std::memory_order_relaxed);
+    valid.store(true, std::memory_order_release);
 }
 bool pressure_sensor_valid() {
-    return valid && (uint32_t)(millis() - lastGood) <= 1000;
+    if (!valid.load(std::memory_order_acquire)) return false;
+    const uint32_t goodAt = lastGood.load(std::memory_order_acquire);
+    return (uint32_t)(millis() - goodAt) <= 1000;
 }
-bool pressure_sensor_overpressure() { return overpressureTrip; }
+bool pressure_sensor_overpressure() {
+    return overpressureTrip.load(std::memory_order_acquire);
+}
 int pressure_sensor_bar_x10() { return (int)lroundf(bar * 10.0f); }
 int pressure_sensor_signal_mv() { return signalMv; }
