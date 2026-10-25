@@ -15,6 +15,7 @@
 #include "tank_counter.h"
 #include "job_counter.h"
 #include "nozzle_model.h"
+#include "nozzle_profile_compatibility.h"
 #include "auto_regulator.h"
 #include <cmath>
 
@@ -1653,9 +1654,30 @@ static void nozzle_editor_refresh(){
 }
 static void nozzle_cycle_cb(lv_event_t *e){
     if(bench_test_active())return;
-    if((intptr_t)lv_event_get_user_data(e)==0)nozzleDraft.nozzle^=1;
-    else {nozzleDraft.liquid=(nozzleDraft.liquid+1)%5;const float rho[]={1,1.28f,1.30f,1.32f};if(nozzleDraft.liquid<4)nozzleDraft.density=rho[nozzleDraft.liquid];}
-    nozzleDirty=true;nozzle_editor_refresh();
+    if((intptr_t)lv_event_get_user_data(e)==0){
+        const uint8_t requested=nozzleDraft.nozzle^1;
+        if(!nozzle_profile_compatible(requested,nozzleDraft.liquid)){
+            nozzleDraft.nozzle=nozzleDraft.liquid==0?0:1;
+            nozzle_editor_refresh();
+            set_label_text_if_changed(nozzleMessage,
+                nozzleDraft.liquid==0 ? "WODA wymaga niebieskiej dyszy 11003." :
+                "RSM 28/30/32 wymaga czerwonej dyszy 04RSM.");
+            return;
+        }
+        nozzleDraft.nozzle=requested;
+    } else {
+        nozzleDraft.liquid=(nozzleDraft.liquid+1)%5;
+        const float rho[]={1.0f,1.28f,1.30f,1.32f};
+        if(nozzleDraft.liquid==0){
+            nozzleDraft.nozzle=0;
+            nozzleDraft.density=rho[0];
+        } else if(nozzleDraft.liquid<4){
+            nozzleDraft.nozzle=1;
+            nozzleDraft.density=rho[nozzleDraft.liquid];
+        }
+    }
+    nozzleDirty=true;
+    nozzle_editor_refresh();
 }
 static void nozzle_save_cb(lv_event_t *){
     if(nozzle_save(nozzleDraft)){nozzleDirty=false;nozzle_editor_refresh();ui_update();}

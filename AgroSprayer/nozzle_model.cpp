@@ -1,4 +1,5 @@
 #include "nozzle_model.h"
+#include "nozzle_profile_compatibility.h"
 #include "sprayer_state.h"
 #include "pressure_sensor.h"
 #include "ui.h"
@@ -15,7 +16,7 @@ const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c31||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.magic!=0x4e5a4c31||s.nozzle>1||s.liquid>4||!nozzle_profile_compatible(s.nozzle,s.liquid)||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
     for(float q:s.waterQ3)if(!std::isfinite(q)||q<0.1f||q>5)return false;
     return true;
