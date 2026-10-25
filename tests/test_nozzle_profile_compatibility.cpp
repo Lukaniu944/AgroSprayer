@@ -11,8 +11,8 @@ int main()
     assert(nozzle_profile_compatible(1, 2));
     assert(!nozzle_profile_compatible(0, 3)); // RSM 32 requires 04RSM
     assert(nozzle_profile_compatible(1, 3));
-    assert(nozzle_profile_compatible(0, 4));  // Custom profile permits either
-    assert(nozzle_profile_compatible(1, 4));
+    assert(nozzle_profile_compatible(0, 4));  // Custom liquid uses water-reference 11003
+    assert(!nozzle_profile_compatible(1, 4)); // No unverified correction on 04RSM
     assert(!nozzle_profile_compatible(2, 4));
     assert(!nozzle_profile_compatible(0, 5));
     return 0;

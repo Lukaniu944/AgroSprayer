@@ -1384,7 +1384,7 @@ static lv_obj_t *quickInputs[32] = {}; static int quickInputCount = 0;
 static bool quickWidthsDirty = false;
 static const char *quickStatus = nullptr;
 static uint32_t quickStatusUntil = 0;
-static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr;
+static lv_obj_t *nozzlePanel=nullptr,*nozzleValues[8]={},*nozzleSelect=nullptr,*liquidSelect=nullptr,*nozzleMessage=nullptr,*homeProfile=nullptr,*nozzleFlowTitle=nullptr;
 static lv_obj_t *nozzleHomeInfo=nullptr;
 static NozzleSettings nozzleDraft;
 static bool nozzleDirty=false;
@@ -1441,10 +1441,10 @@ static void quick_accept_cb(lv_event_t *)
         const float minimum=i==0?.1f:i==1?.8f:1;
         const float maximum=i==0?5:i==1?1.6f:40;
         if(end==text||*end||!std::isfinite(value)||value<minimum||value>maximum||(i>=2&&value!=(int)value)) {
-            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
+            set_label_text_if_changed(quickError,i==0?(nozzleDraft.nozzle?"Zakres: 0.10 - 5.00 L/min (RSM, 3 bar)":"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)"):i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
         }
         if(i==0)nozzleDraft.waterQ3[nozzleDraft.nozzle]=value;
-        else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;}
+        else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;nozzleDraft.nozzle=0;}
         else nozzleDraft.counts[i-2]=(uint8_t)value;
         nozzleDirty=true;close_quick_input();nozzle_editor_refresh();return;
     }
@@ -1484,7 +1484,7 @@ static void quick_open_input_cb(lv_event_t *e)
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
-    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
+    home_text(quickModal,quickField==100 ? (nozzleDraft.nozzle ? "WYDATEK JEDNEJ KONCOWKI - RSM PRZY 3 bar" : "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar") : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
     quickEntry[0]=0;
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
@@ -1642,6 +1642,7 @@ static void nozzle_editor_refresh(){
     set_label_text_if_changed(lv_obj_get_child(nozzleSelect,0),nozzleDraft.nozzle?"KONCOWKA: 04RSM  >":"KONCOWKA: 11003  >");
     const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};
     snprintf(b,sizeof(b),"CIECZ: %s  >",names[nozzleDraft.liquid]);set_label_text_if_changed(lv_obj_get_child(liquidSelect,0),b);
+    set_label_text_if_changed(nozzleFlowTitle,nozzleDraft.nozzle?"WYDATEK RSM PRZY 3 bar":"WYDATEK WODY PRZY 3 bar");
     for(int i=0;i<8;i++){
         if(i==0)snprintf(b,sizeof(b),"%.2f L/min",nozzleDraft.waterQ3[nozzleDraft.nozzle]);
         else if(i==1)snprintf(b,sizeof(b),"%.2f kg/L",nozzleDraft.density);
@@ -1674,6 +1675,10 @@ static void nozzle_cycle_cb(lv_event_t *e){
         } else if(nozzleDraft.liquid<4){
             nozzleDraft.nozzle=1;
             nozzleDraft.density=rho[nozzleDraft.liquid];
+        } else {
+            // Custom liquid uses the water-reference table and entered density.
+            nozzleDraft.nozzle=0;
+            nozzleDraft.density=1.0f;
         }
     }
     nozzleDirty=true;
@@ -1697,12 +1702,13 @@ static void nozzle_open_cb(lv_event_t *){
     for(int i=0;i<8;i++){
         int x=i<2?20+i*462:20+(i-2)*154;
         int y=i<2?78:182,w=i<2?446:142;
-        home_text(nozzlePanel,names[i],x,y,C_MUTED(),&lv_font_montserrat_16);
+        lv_obj_t *title=home_text(nozzlePanel,names[i],x,y,C_MUTED(),&lv_font_montserrat_16);
+        if(i==0)nozzleFlowTitle=title;
         auto *b=home_control(nozzlePanel,x,y+24,w,48,"--",nullptr);
         lv_obj_add_event_cb(b,quick_open_input_cb,LV_EVENT_CLICKED,(void*)(intptr_t)(100+i));
         nozzleValues[i]=lv_obj_get_child(b,0);
     }
-    home_text(nozzlePanel,"Kalibracja wydatku: wpisz pomiar WODA przy 3 bar. Korekta RSM jest automatyczna.",20,158,C_MUTED(),&lv_font_montserrat_16);
+    home_text(nozzlePanel,"11003: tabela wody; WLASNA - korekta z gestosci. 04RSM: tabela RSM, bez drugiej korekty.",20,158,C_MUTED(),&lv_font_montserrat_16);
     nozzleMessage=home_text(nozzlePanel,"--",20,270,C_GREEN(),&lv_font_montserrat_16);
     home_text(nozzlePanel,"Dawka i litry sa obliczane. Zmiany dzialaja po ZAPISZ; wyjscie odrzuca edycje.",20,297,C_MUTED(),&lv_font_montserrat_16);
     home_control(nozzlePanel,20,330,446,50,"COFNIJ ZMIANY",nozzle_cancel_cb);
@@ -1996,7 +2002,7 @@ static void release_detail_editors()
     auto_regulator_stop();
     close_quick_input();
     if(nozzlePanel)lv_obj_delete(nozzlePanel);
-    nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;for(auto &v:nozzleValues)v=nullptr;
+    nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;nozzleFlowTitle=nullptr;for(auto &v:nozzleValues)v=nullptr;
     if(jobPanel)lv_obj_delete(jobPanel);
     jobPanel=jobStatus=jobPauseButton=jobNewButton=nullptr;
     for(auto &value:jobValues)value=nullptr;jobConfirm=false;

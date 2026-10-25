@@ -16,6 +16,8 @@ jobs:
           /tmp/agrosprayer-pressure-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_nozzle_profile_compatibility.cpp -o /tmp/agrosprayer-nozzle-profile-test
           /tmp/agrosprayer-nozzle-profile-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_nozzle_flow.cpp -o /tmp/agrosprayer-nozzle-flow-test
+          /tmp/agrosprayer-nozzle-flow-test
 
   esp32-build:
     runs-on: ubuntu-latest
