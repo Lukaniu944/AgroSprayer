@@ -18,6 +18,8 @@ jobs:
           /tmp/agrosprayer-nozzle-profile-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_nozzle_flow.cpp -o /tmp/agrosprayer-nozzle-flow-test
           /tmp/agrosprayer-nozzle-flow-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_aog_pgn.cpp -o /tmp/agrosprayer-aog-pgn-test
+          /tmp/agrosprayer-aog-pgn-test
 
   esp32-build:
     runs-on: ubuntu-latest
