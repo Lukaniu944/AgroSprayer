@@ -101,6 +101,6 @@ int main() {
         test(validSwitchChecksum(packet), "PGN234 checksum valid for every section mask");
     }
 
-    std::cout << "OK: " << checks << " AgOpenGPS AgOpenGPS protocol assertions passed\n";
+    std::cout << "OK: " << checks << " AgOpenGPS protocol assertions passed\n";
     return 0;
 }

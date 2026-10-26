@@ -21,7 +21,7 @@ inline bool valid_machine_data_pgn239(const uint8_t *packet, std::size_t size) {
 }
 
 
-inline uint8_t switch_checksum(const std::array<uint8_t, 14> &packet) {
+constexpr uint8_t switch_checksum(const std::array<uint8_t, 14> &packet) {
     uint16_t sum = 0;
     for (std::size_t i = 2; i <= 12; ++i) sum += packet[i];
     return static_cast<uint8_t>(sum & 0xFFu);
