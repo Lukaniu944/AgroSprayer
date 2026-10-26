@@ -43,5 +43,26 @@ int main() {
     test(agrosensor::overpressure_trip(4.901f), "above 4.9 bar trips");
     test(!agrosensor::overpressure_trip(NAN), "NaN is not treated as a valid pressure");
 
+    // Verify the trip boundary against the actual ADS1115 scale and divider.
+    // ADS1115 PGA +/-4.096 V gives 125 uV/count; the 1.5x divider
+    // compensation converts one ADC count to 187.5 uV at the sensor output.
+    constexpr float kAds1115LsbV = 4.096f / 32768.0f;
+    constexpr float kDividerCompensation = 1.5f;
+    const float tripVoltage = 0.5f +
+        (agrosensor::kPressureTripBar / (80.0f * agrosensor::kBarPerPsi)) *
+        (4.5f - 0.5f);
+    const float sensorLsbV = kAds1115LsbV * kDividerCompensation;
+    near(tripVoltage, 4.053f, 0.002f, "4.9 bar trip corresponds to about 4.053 V sensor output");
+    near(agrosensor::raw_pressure_bar_from_voltage(tripVoltage, 0.5f, 4.5f, 80.0f),
+         agrosensor::kPressureTripBar, 0.001f, "calculated trip voltage maps back to 4.9 bar");
+    test(agrosensor::raw_pressure_bar_from_voltage(
+             tripVoltage - sensorLsbV, 0.5f, 4.5f, 80.0f) <
+             agrosensor::kPressureTripBar,
+         "one ADS1115 count below trip voltage remains below threshold");
+    test(agrosensor::raw_pressure_bar_from_voltage(
+             tripVoltage + sensorLsbV, 0.5f, 4.5f, 80.0f) >=
+             agrosensor::kPressureTripBar,
+         "one ADS1115 count above trip voltage crosses threshold");
+
     std::cout << "OK: " << checks << " pressure sensor assertions passed\n";
 }
