@@ -1,5 +1,6 @@
 #include "auto_regulator.h"
 #include "pressure_control_core.h"
+#include "aog_pgn_core.h"
 #include "nozzle_model.h"
 #include "pressure_sensor.h"
 #include "sprayer_state.h"
@@ -22,7 +23,7 @@ agroreg::Input snapshot() {
     s.autoMode = gState.autoMode;
     s.connected = gState.wifiOk && gState.udpOk && gState.aogOk &&
                   gState.rxPackets != 0 &&
-                  (uint32_t)(s.now-gState.lastAogMs) <= AOG_TIMEOUT_MS;
+                  agopgn::machine_data_is_fresh(s.now, gState.lastAogMs, AOG_TIMEOUT_MS);
     s.sensorValid = pressure_sensor_valid();
     s.pressureTrip = pressure_sensor_overpressure();
     s.driverReady = valve_test_ready();
