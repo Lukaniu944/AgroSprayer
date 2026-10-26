@@ -1,6 +1,7 @@
 #include "pressure_sensor.h"
 #include "board_config.h"
 #include "hw_i2c.h"
+#include "pressure_sensor_core.h"
 #include <math.h>
 #include <atomic>
 
@@ -8,7 +9,6 @@ static i2c_master_dev_handle_t device = nullptr;
 static bool pending = false, filtered = false;
 static std::atomic<bool> valid{false};
 static std::atomic<bool> overpressureTrip{false};
-static constexpr float PRESSURE_TRIP_BAR = 4.9f;
 static uint32_t started = 0, attempted = 0;
 static std::atomic<uint32_t> lastGood{0};
 static uint32_t retryMs = 0;
@@ -76,16 +76,25 @@ void pressure_sensor_update() {
     pending = false;
     const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
     signalMv.store((int)lroundf(sensorV * 1000.0f), std::memory_order_release);
-    if (!isfinite(sensorV) || sensorV < PRESSURE_VALID_MIN_V || sensorV > PRESSURE_VALID_MAX_V) {
+    if (!agrosensor::voltage_valid(sensorV, PRESSURE_VALID_MIN_V, PRESSURE_VALID_MAX_V)) {
         valid.store(false, std::memory_order_release);
         filtered = false;
         return;
     }
-    float measuredBar = (sensorV - PRESSURE_ZERO_V) / (PRESSURE_FULL_V - PRESSURE_ZERO_V)
-                        * PRESSURE_MAX_PSI * 0.0689475729f;
-    // Trip on the unfiltered measurement so the display smoothing cannot delay shutdown.
-    if (measuredBar >= PRESSURE_TRIP_BAR) overpressureTrip.store(true, std::memory_order_release);
-    const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
+    const float rawMeasuredBar = agrosensor::raw_pressure_bar_from_voltage(
+        sensorV, PRESSURE_ZERO_V, PRESSURE_FULL_V, PRESSURE_MAX_PSI);
+    if (!std::isfinite(rawMeasuredBar)) {
+        valid.store(false, std::memory_order_release);
+        filtered = false;
+        return;
+    }
+    // Trip on the unfiltered, unclamped measurement so display smoothing or
+    // display-range clamping cannot delay the overpressure shutdown.
+    if (agrosensor::overpressure_trip(rawMeasuredBar)) {
+        overpressureTrip.store(true, std::memory_order_release);
+    }
+    float measuredBar = rawMeasuredBar;
+    const float maxBar = PRESSURE_MAX_PSI * agrosensor::kBarPerPsi;
     if (measuredBar < 0) measuredBar = 0;
     if (measuredBar > maxBar) measuredBar = maxBar;
     filteredBar = filtered ? filteredBar + 0.25f * (measuredBar - filteredBar) : measuredBar;
