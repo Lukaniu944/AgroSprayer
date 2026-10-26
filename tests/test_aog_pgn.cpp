@@ -1,7 +1,7 @@
 #include "aog_pgn_core.h"
 #include <array>
-#include <cassert>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 
 static void set_checksum(std::array<uint8_t, 14> &p) {
