@@ -63,6 +63,44 @@ int main() {
     test(!agopgn::valid_machine_data_pgn239(bad.data(), bad.size()),
          "checksum mismatch rejected");
 
-    std::cout << "OK: " << checks << " AgOpenGPS PGN239 assertions passed\n";
+
+    // Outgoing PGN234 packet tests: header, AUTO/MANUAL/reset and all 64
+    // possible masks for the six-section 21 m boom.
+    auto validSwitchChecksum = [](const std::array<uint8_t, 14> &packet) {
+        uint16_t sum = 0;
+        for (int i = 2; i <= 12; ++i) sum += packet[static_cast<std::size_t>(i)];
+        return static_cast<uint8_t>(sum & 0xFFu) == packet[13];
+    };
+    const auto autoPacket = agopgn::build_switch_packet<6>(true, false, 0x3F);
+    test(autoPacket[0] == 0x80 && autoPacket[1] == 0x81 &&
+         autoPacket[2] == 0x77 && autoPacket[3] == 0xEA &&
+         autoPacket[4] == 0x08 && autoPacket[8] == 6,
+         "PGN234 header and six-section count");
+    test(autoPacket[5] == 0x05 && autoPacket[6] == 0x3F &&
+         autoPacket[9] == 0 && autoPacket[10] == 0,
+         "PGN234 AUTO delegates sections without manual overrides");
+    test(validSwitchChecksum(autoPacket), "PGN234 AUTO checksum");
+
+    const auto manualPacket = agopgn::build_switch_packet<6>(false, false, 0x49);
+    test(manualPacket[5] == 0x06 && manualPacket[6] == 0 &&
+         manualPacket[9] == 0x09 && manualPacket[10] == 0x36,
+         "PGN234 MANUAL masks unsupported bits and complements OFF mask");
+    test(validSwitchChecksum(manualPacket), "PGN234 MANUAL checksum");
+
+    const auto resetPacket = agopgn::build_switch_packet<6>(true, true, 0x3F);
+    test(resetPacket[5] == 0x06 && resetPacket[6] == 0 &&
+         resetPacket[9] == 0 && resetPacket[10] == 0x3F,
+         "PGN234 AUTO handover first requests all sections OFF");
+    test(validSwitchChecksum(resetPacket), "PGN234 reset checksum");
+
+    for (uint8_t mask = 0; mask < 64; ++mask) {
+        const auto packet = agopgn::build_switch_packet<6>(false, false, mask);
+        test(packet[9] == mask, "PGN234 preserves each six-section ON mask");
+        test(packet[10] == static_cast<uint8_t>((~mask) & 0x3F),
+             "PGN234 OFF mask is complementary within six sections");
+        test(validSwitchChecksum(packet), "PGN234 checksum valid for every section mask");
+    }
+
+    std::cout << "OK: " << checks << " AgOpenGPS AgOpenGPS protocol assertions passed\n";
     return 0;
 }
