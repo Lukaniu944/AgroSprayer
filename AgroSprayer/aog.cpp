@@ -138,10 +138,14 @@ void aog_update() {
     }
 
     uint32_t now = millis();
-    // Never show AOG as connected during the first 1.5 s after boot:
-    // require at least one real PGN239 packet and a fresh timestamp.
+    // Require a real, fresh PGN239 packet before exposing cached machine data.
     gState.aogOk = gState.udpOk && gState.rxPackets > 0 &&
-                   (uint32_t)(now - gState.lastAogMs) <= AOG_TIMEOUT_MS;
+                   agopgn::machine_data_is_fresh(now, gState.lastAogMs, AOG_TIMEOUT_MS);
+
+    // Do not keep displaying/using stale speed or section states after AOG/Wi-Fi
+    // data expires. This clears local state only; it is not a hardware shutoff.
+    agopgn::clear_stale_machine_state(gState.aogOk, gState.speedX10,
+                                      gState.sections, SECTION_COUNT);
 
     if (bench_test_active()) {
         pendingTx = false;
