@@ -5,6 +5,20 @@
 
 namespace agopgn {
 
+inline bool machine_data_is_fresh(uint32_t now, uint32_t lastRxMs,
+                                  uint32_t timeoutMs) {
+    // Unsigned subtraction is wrap-safe for millis()-style counters.
+    return static_cast<uint32_t>(now - lastRxMs) <= timeoutMs;
+}
+
+inline void clear_stale_machine_state(bool fresh, int &speedX10,
+                                      bool *sections, std::size_t count) {
+    if (fresh) return;
+    speedX10 = 0;
+    if (!sections) return;
+    for (std::size_t i = 0; i < count; ++i) sections[i] = false;
+}
+
 // AgOpenGPS PGN 239 (Machine Data): 5-byte header, 8-byte payload, 1-byte
 // checksum. Checksum is the low byte of the sum of source through payload.
 inline bool valid_machine_data_pgn239(const uint8_t *packet, std::size_t size) {
