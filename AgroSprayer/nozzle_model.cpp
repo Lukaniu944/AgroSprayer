@@ -34,8 +34,9 @@ bool nozzle_save(const NozzleSettings &s){
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
     ns=s;previousValid=false;reading=false;return true;
 }
-// 11003 is water-reference; the supplied 04RSM table is already RSM-specific.
-// Keep the two table meanings separate so RSM flow is not corrected twice.
+// Both configured tables are treated as water-reference values.
+// nozzle_flow_core.h applies the 04RSM RSM 28/30/32 correction exactly once
+// (division by the inverse factors 1.13/1.14/1.15). Do not correct 04RSM again.
 float nozzle_flow(float bar,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(bar)||bar<0)return NAN;
     return agronozzle::nozzle_flow_from_table(
