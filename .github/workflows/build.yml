@@ -1,7 +1,7 @@
 name: AgroSprayer checks
 on:
   push:
-    branches: [auto-regulator-bez-przeplywomierza]
+    branches: [auto-regulator-bez-przeplywomierza, safety-interlocks-pressure-valve, fix/ci-trigger-bench]
   pull_request:
   workflow_dispatch:
 
