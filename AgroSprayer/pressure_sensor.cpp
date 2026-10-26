@@ -12,8 +12,11 @@ static constexpr float PRESSURE_TRIP_BAR = 4.9f;
 static uint32_t started = 0, attempted = 0;
 static std::atomic<uint32_t> lastGood{0};
 static uint32_t retryMs = 0;
-static float bar = 0;
-static int signalMv = -1;
+// Only pressure_sensor_update() owns the filter accumulator. Other tasks read
+// the published integer snapshot below, avoiding cross-task access to a float.
+static float filteredBar = 0;
+static std::atomic<int> publishedBarX10{0};
+static std::atomic<int> signalMv{-1};
 
 static bool readRegister(uint8_t reg, uint16_t &value) {
     uint8_t bytes[2];
@@ -25,7 +28,7 @@ static void busError() {
     pending = false;
     valid.store(false, std::memory_order_release);
     filtered = false;
-    signalMv = -1;
+    signalMv.store(-1, std::memory_order_release);
     retryMs = 2000;
 }
 void pressure_sensor_begin() {
@@ -33,7 +36,7 @@ void pressure_sensor_begin() {
     valid.store(false, std::memory_order_release);
     filtered = false;
     overpressureTrip.store(false, std::memory_order_release);
-    signalMv = -1;
+    signalMv.store(-1, std::memory_order_release);
     retryMs = 0;
     attempted = millis() - PRESSURE_INTERVAL_MS;
     if (!device && !hw_i2c_add_device(PRESSURE_ADS_ADDR, &device)) busError();
@@ -72,7 +75,7 @@ void pressure_sensor_update() {
     if (!readRegister(0, raw)) { busError(); return; }
     pending = false;
     const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
-    signalMv = (int)lroundf(sensorV * 1000.0f);
+    signalMv.store((int)lroundf(sensorV * 1000.0f), std::memory_order_release);
     if (!isfinite(sensorV) || sensorV < PRESSURE_VALID_MIN_V || sensorV > PRESSURE_VALID_MAX_V) {
         valid.store(false, std::memory_order_release);
         filtered = false;
@@ -85,8 +88,9 @@ void pressure_sensor_update() {
     const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
     if (measuredBar < 0) measuredBar = 0;
     if (measuredBar > maxBar) measuredBar = maxBar;
-    bar = filtered ? bar + 0.25f * (measuredBar - bar) : measuredBar;
+    filteredBar = filtered ? filteredBar + 0.25f * (measuredBar - filteredBar) : measuredBar;
     filtered = true;
+    publishedBarX10.store((int)lroundf(filteredBar * 10.0f), std::memory_order_release);
     lastGood.store(now, std::memory_order_relaxed);
     valid.store(true, std::memory_order_release);
 }
@@ -98,5 +102,9 @@ bool pressure_sensor_valid() {
 bool pressure_sensor_overpressure() {
     return overpressureTrip.load(std::memory_order_acquire);
 }
-int pressure_sensor_bar_x10() { return (int)lroundf(bar * 10.0f); }
-int pressure_sensor_signal_mv() { return signalMv; }
+int pressure_sensor_bar_x10() {
+    return publishedBarX10.load(std::memory_order_acquire);
+}
+int pressure_sensor_signal_mv() {
+    return signalMv.load(std::memory_order_acquire);
+}
