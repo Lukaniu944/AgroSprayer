@@ -20,6 +20,28 @@ int main() {
         ++checks;
     };
 
+    test(agopgn::machine_data_is_fresh(1500, 0, 1500),
+         "millis timeout boundary is fresh");
+    test(!agopgn::machine_data_is_fresh(1501, 0, 1500),
+         "millis timeout exceeded is stale");
+    test(agopgn::machine_data_is_fresh(0x10u, 0xFFFFFFF0u, 1500),
+         "millis rollover remains fresh");
+
+    int staleSpeed = 80;
+    bool staleSections[6] = {true, true, true, true, true, true};
+    agopgn::clear_stale_machine_state(false, staleSpeed, staleSections, 6);
+    test(staleSpeed == 0, "stale AOG data clears cached speed");
+    for (bool section : staleSections)
+        test(!section, "stale AOG data clears each cached section");
+
+    int freshSpeed = 80;
+    bool freshSections[6] = {true, false, true, false, true, false};
+    agopgn::clear_stale_machine_state(true, freshSpeed, freshSections, 6);
+    test(freshSpeed == 80, "fresh AOG data preserves speed");
+    for (int i = 0; i < 6; ++i)
+        test(freshSections[i] == ((i % 2) == 0),
+             "fresh AOG data preserves section mask");
+
     std::array<uint8_t, 14> p = {
         0x80, 0x81, 0x7F, 0xEF, 0x08,
         0x00, 0x50, 0x00, 0x00, 0x00, 0x00, 0x05, 0x00, 0x00
