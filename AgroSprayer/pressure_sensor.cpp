@@ -74,7 +74,8 @@ void pressure_sensor_update() {
     uint16_t raw;
     if (!readRegister(0, raw)) { busError(); return; }
     pending = false;
-    const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
+    const float sensorV = agrosensor::sensor_voltage_from_ads1115_raw(
+        (int16_t)raw, 4.096f / 32768.0f, PRESSURE_DIVIDER_RATIO);
     signalMv.store((int)lroundf(sensorV * 1000.0f), std::memory_order_release);
     if (!agrosensor::voltage_valid(sensorV, PRESSURE_VALID_MIN_V, PRESSURE_VALID_MAX_V)) {
         valid.store(false, std::memory_order_release);

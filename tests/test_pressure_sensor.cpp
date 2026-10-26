@@ -43,26 +43,33 @@ int main() {
     test(agrosensor::overpressure_trip(4.901f), "above 4.9 bar trips");
     test(!agrosensor::overpressure_trip(NAN), "NaN is not treated as a valid pressure");
 
-    // Verify the trip boundary against the actual ADS1115 scale and divider.
-    // ADS1115 PGA +/-4.096 V gives 125 uV/count; the 1.5x divider
-    // compensation converts one ADC count to 187.5 uV at the sensor output.
+    // Verify the trip boundary using discrete ADS1115 output codes, not
+    // arbitrary continuous voltages. With +/-4.096 V PGA and a 1.5x divider,
+    // code 21618 is below 4.9 bar and code 21619 is the first code above it.
     constexpr float kAds1115LsbV = 4.096f / 32768.0f;
     constexpr float kDividerCompensation = 1.5f;
-    const float tripVoltage = 0.5f +
-        (agrosensor::kPressureTripBar / (80.0f * agrosensor::kBarPerPsi)) *
-        (4.5f - 0.5f);
-    const float sensorLsbV = kAds1115LsbV * kDividerCompensation;
-    near(tripVoltage, 4.053f, 0.002f, "4.9 bar trip corresponds to about 4.053 V sensor output");
-    near(agrosensor::raw_pressure_bar_from_voltage(tripVoltage, 0.5f, 4.5f, 80.0f),
-         agrosensor::kPressureTripBar, 0.001f, "calculated trip voltage maps back to 4.9 bar");
+    constexpr int16_t kCodeBelowTrip = 21618;
+    constexpr int16_t kCodeAboveTrip = 21619;
+    const float voltageBelow = agrosensor::sensor_voltage_from_ads1115_raw(
+        kCodeBelowTrip, kAds1115LsbV, kDividerCompensation);
+    const float voltageAbove = agrosensor::sensor_voltage_from_ads1115_raw(
+        kCodeAboveTrip, kAds1115LsbV, kDividerCompensation);
+    near(voltageBelow, 4.053375f, 0.00001f,
+         "ADS1115 code 21618 maps to sensor voltage below trip");
+    near(voltageAbove, 4.0535625f, 0.00001f,
+         "ADS1115 code 21619 maps to sensor voltage above trip");
     test(agrosensor::raw_pressure_bar_from_voltage(
-             tripVoltage - sensorLsbV, 0.5f, 4.5f, 80.0f) <
-             agrosensor::kPressureTripBar,
-         "one ADS1115 count below trip voltage remains below threshold");
+             voltageBelow, 0.5f, 4.5f, 80.0f) < agrosensor::kPressureTripBar,
+         "discrete ADS1115 code immediately below trip does not trip");
     test(agrosensor::raw_pressure_bar_from_voltage(
-             tripVoltage + sensorLsbV, 0.5f, 4.5f, 80.0f) >=
-             agrosensor::kPressureTripBar,
-         "one ADS1115 count above trip voltage crosses threshold");
+             voltageAbove, 0.5f, 4.5f, 80.0f) >= agrosensor::kPressureTripBar,
+         "first discrete ADS1115 code above trip crosses threshold");
+    test(!std::isfinite(agrosensor::sensor_voltage_from_ads1115_raw(
+             100, 0.0f, kDividerCompensation)),
+         "zero ADC LSB is rejected");
+    test(!std::isfinite(agrosensor::sensor_voltage_from_ads1115_raw(
+             100, kAds1115LsbV, 0.0f)),
+         "zero divider ratio is rejected");
 
     std::cout << "OK: " << checks << " pressure sensor assertions passed\n";
 }
