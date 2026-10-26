@@ -1,6 +1,7 @@
 #include "aog.h"
 #include "config.h"
 #include "board_config.h"
+#include "aog_pgn_core.h"
 #include "sprayer_state.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
@@ -79,17 +80,17 @@ static void sendSwitch() {
 }
 
 static void parse(uint8_t *p, int n) {
-    if (n < 12 || p[0] != 0x80 || p[1] != 0x81) return;
+    // Ignore truncated, oversized, wrong-source and checksum-invalid datagrams:
+    // they must not refresh the AOG watchdog or alter section states.
+    if (!agopgn::valid_machine_data_pgn239(p, static_cast<std::size_t>(n))) return;
 
-    if (p[2] == 0x7F && p[3] == 0xEF) {
-        gState.speedX10 = p[6];
-        if (gState.autoMode && !modeReset) {
-            uint8_t mask = p[11];
-            for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
-        }
-        gState.lastAogMs = millis();
-        gState.rxPackets++;
+    gState.speedX10 = p[6];
+    if (gState.autoMode && !modeReset) {
+        uint8_t mask = p[11];
+        for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
     }
+    gState.lastAogMs = millis();
+    gState.rxPackets++;
 }
 
 void aog_update() {
