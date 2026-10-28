@@ -17,9 +17,20 @@ static void outputsOff() {
 static void watchdogTask(void *) {
     for (;;) {
         portENTER_CRITICAL(&mux);
-        if (direction && ((uint32_t)(millis() - started) >= pulseDuration ||
-                          !pressure_sensor_valid() || pressure_sensor_overpressure())) {
-            outputsOff(); direction = 0; stopped = millis();
+        const bool pressureFault =
+            !pressure_sensor_valid() || pressure_sensor_overpressure();
+        if (pressureFault) {
+            // A pressure fault must also disarm an idle manual test, not only
+            // stop an active pulse. A fresh operator arm is required after recovery.
+            if (direction) outputsOff();
+            direction = 0;
+            armed = false;
+            stopped = millis();
+        } else if (direction &&
+                   (uint32_t)(millis() - started) >= pulseDuration) {
+            outputsOff();
+            direction = 0;
+            stopped = millis();
         }
         portEXIT_CRITICAL(&mux);
         vTaskDelay(pdMS_TO_TICKS(10));
