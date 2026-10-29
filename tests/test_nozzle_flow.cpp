@@ -10,60 +10,85 @@ static bool near(float a, float b, float eps = 0.002f) {
 
 int main() {
     using agronozzle::nozzle_flow_from_table;
-using agronozzle::nozzle_target_pressure_from_table;
+    using agronozzle::nozzle_target_pressure_from_table;
+
     int checks = 0;
     auto test = [&](bool condition, const char *name) {
-        if (!condition) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
+        if (!condition) {
+            std::cerr << "FAIL: " << name << "\n";
+            std::abort();
+        }
         ++checks;
     };
-    test(near(nozzle_flow_from_table(2.0f,0,0,1.18f,1.0f),0.96f),
-         "11003 water table at 2 bar");
-    test(near(nozzle_flow_from_table(2.5f,0,0,1.18f,1.0f),1.08f),
-         "11003 water table at 2.5 bar");
-    test(near(nozzle_flow_from_table(3.0f,0,0,1.18f,1.0f),1.18f),
-         "11003 water table at 3 bar");
-    test(near(nozzle_flow_from_table(3.0f,0,0,1.30f,1.0f),1.30f),
+
+    // Manufacturer 11003 water table: exact published points.
+    static constexpr float waterPressure[] = {2.0f, 2.5f, 3.0f, 3.5f, 4.0f};
+    static constexpr float waterFlow[] = {0.96f, 1.08f, 1.18f, 1.27f, 1.39f};
+    for (int i = 0; i < 5; ++i) {
+        test(near(nozzle_flow_from_table(waterPressure[i], 0, 0, 1.18f, 1.0f),
+                  waterFlow[i]), "11003 exact manufacturer table point");
+    }
+    test(near(nozzle_flow_from_table(3.0f, 0, 0, 1.30f, 1.0f), 1.30f),
          "11003 calibration scaling");
 
-    test(near(nozzle_flow_from_table(3.0f,1,1,1.54f,1.28f),1.54f/1.13f),
-         "RSM 28 water table corrected by 1.13");
-    test(near(nozzle_flow_from_table(3.0f,1,2,1.54f,1.30f),1.54f/1.14f),
-         "RSM 30 water table corrected by 1.14");
-    test(near(nozzle_flow_from_table(3.0f,1,3,1.54f,1.32f),1.54f/1.15f),
-         "RSM 32 water table corrected by 1.15");
-    test(near(nozzle_flow_from_table(2.0f,1,3,1.54f,1.32f),1.26f/1.15f),
-         "04RSM 2 bar corrected table value");
-    test(near(nozzle_flow_from_table(4.0f,1,3,1.54f,1.32f),1.78f/1.15f),
-         "04RSM 4 bar corrected table value");
-    test(near(nozzle_flow_from_table(5.0f,1,3,1.54f,1.32f),1.99f/1.15f),
-         "04RSM 5 bar corrected table value");
-    test(near(nozzle_flow_from_table(6.0f,1,3,1.54f,1.32f),2.18f/1.15f),
-         "04RSM 6 bar corrected table value");
+    // Manufacturer 04RSM water-reference table, corrected to each RSM grade.
+    static constexpr float rsmPressure[] = {2.0f, 3.0f, 4.0f, 5.0f, 6.0f};
+    static constexpr float rsmWaterFlow[] = {1.26f, 1.54f, 1.78f, 1.99f, 2.18f};
+    static constexpr float correction[] = {1.13f, 1.14f, 1.15f};
+    for (uint8_t liquid = 1; liquid <= 3; ++liquid) {
+        for (int i = 0; i < 5; ++i) {
+            const float q = nozzle_flow_from_table(
+                rsmPressure[i], 1, liquid, 1.54f, 1.0f);
+            test(near(q, rsmWaterFlow[i] / correction[liquid - 1]),
+                 "04RSM exact table point with RSM correction");
+        }
+        test(!std::isfinite(nozzle_flow_from_table(
+                 1.9f, 1, liquid, 1.54f, 1.0f)),
+             "04RSM lower boundary rejected for each RSM grade");
+        test(!std::isfinite(nozzle_flow_from_table(
+                 6.1f, 1, liquid, 1.54f, 1.0f)),
+             "04RSM upper boundary rejected for each RSM grade");
+    }
 
-    test(near(nozzle_flow_from_table(3.0f,0,4,1.18f,1.28f),1.18f/std::sqrt(1.28f)),
-         "custom liquid density correction on water table");
-    test(near(nozzle_flow_from_table(0.1f,0,0,1.18f,1.0f),0.0f),
+    // Interpolation follows the square-of-flow / pressure relationship.
+    const float expectedWaterMid = std::sqrt(
+        1.18f * 1.18f + 0.5f * (1.27f * 1.27f - 1.18f * 1.18f));
+    test(near(nozzle_flow_from_table(3.25f, 0, 0, 1.18f, 1.0f),
+              expectedWaterMid), "11003 interpolation at 3.25 bar");
+    const float expectedRsmMid = std::sqrt(
+        1.78f * 1.78f + 0.5f * (1.99f * 1.99f - 1.78f * 1.78f)) / 1.14f;
+    test(near(nozzle_flow_from_table(4.5f, 1, 2, 1.54f, 1.0f),
+              expectedRsmMid), "04RSM RSM 30 interpolation at 4.5 bar");
+
+    test(near(nozzle_flow_from_table(0.1f, 0, 0, 1.18f, 1.0f), 0.0f),
          "near-zero pressure");
-    test(!std::isfinite(nozzle_flow_from_table(1.9f,0,0,1.18f,1.0f)),
-         "pressure below table");
-    test(!std::isfinite(nozzle_flow_from_table(6.1f,1,3,1.54f,1.32f)),
-         "pressure above table");
-    test(!std::isfinite(nozzle_flow_from_table(3.0f,1,4,1.54f,1.32f)),
+    test(!std::isfinite(nozzle_flow_from_table(1.9f, 0, 0, 1.18f, 1.0f)),
+         "11003 pressure below table");
+    test(!std::isfinite(nozzle_flow_from_table(4.1f, 0, 0, 1.18f, 1.0f)),
+         "11003 pressure above table");
+    test(!std::isfinite(nozzle_flow_from_table(3.0f, 1, 4, 1.54f, 1.32f)),
          "custom liquid cannot use RSM table");
-    test(!std::isfinite(nozzle_flow_from_table(3.0f,0,0,1.18f,NAN)),
+    test(!std::isfinite(nozzle_flow_from_table(3.0f, 0, 0, 1.18f, NAN)),
          "invalid density");
-    test(near(nozzle_target_pressure_from_table(1.18f,1,0,0,1.18f,1.0f),3.0f,0.001f),
+
+    test(near(nozzle_target_pressure_from_table(
+                  1.18f, 1, 0, 0, 1.18f, 1.0f), 3.0f, 0.001f),
          "11003 target pressure inversion at 3 bar");
-    const float rsm30At48 = nozzle_flow_from_table(4.8f,1,2,1.54f,1.30f);
-    test(near(nozzle_target_pressure_from_table(rsm30At48,1,1,2,1.54f,1.30f),4.8f,0.001f),
+    const float rsm30At48 = nozzle_flow_from_table(4.8f, 1, 2, 1.54f, 1.30f);
+    test(near(nozzle_target_pressure_from_table(
+                  rsm30At48, 1, 1, 2, 1.54f, 1.30f), 4.8f, 0.001f),
          "RSM target pressure capped at 4.8 bar");
     test(!std::isfinite(nozzle_target_pressure_from_table(
-             nozzle_flow_from_table(5.0f,1,2,1.54f,1.30f),1,1,2,1.54f,1.30f)),
+                  nozzle_flow_from_table(5.0f, 1, 2, 1.54f, 1.30f),
+                  1, 1, 2, 1.54f, 1.30f)),
          "RSM target beyond AUTO limit rejected");
-    test(!std::isfinite(nozzle_target_pressure_from_table(1.40f,1,0,0,1.18f,1.0f)),
+    test(!std::isfinite(nozzle_target_pressure_from_table(
+                  1.40f, 1, 0, 0, 1.18f, 1.0f)),
          "11003 target above 4 bar table rejected");
-    test(!std::isfinite(nozzle_target_pressure_from_table(5.0f,0,1,2,1.54f,1.30f)),
+    test(!std::isfinite(nozzle_target_pressure_from_table(
+                  5.0f, 0, 1, 2, 1.54f, 1.30f)),
          "zero nozzle count rejected");
+
     std::cout << "OK: " << checks << " nozzle-flow assertions passed\n";
     return 0;
 }
