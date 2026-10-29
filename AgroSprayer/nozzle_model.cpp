@@ -13,6 +13,18 @@ static float previousFlow=0;
 static uint32_t tick=0;
 static uint8_t previousMask=0;
 static const char *status="BRAK CZUJNIKA";
+
+static int estimated_liters_x10(double totalLiters)
+{
+    // The home screen uses tenths of a litre and treats values above 50,000 L
+    // as invalid. Clamp here so a long-running estimate cannot overflow int
+    // or turn the display back to zero.
+    if (!std::isfinite(totalLiters) || totalLiters <= 0.0) return 0;
+    const double scaled = totalLiters * 10.0;
+    if (scaled >= 500000.0) return 500000;
+    return static_cast<int>(std::lround(scaled));
+}
+
 const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
@@ -26,6 +38,7 @@ void nozzle_begin(){
     ns=NozzleSettings{};Preferences p;
     if(p.begin("agronozzle",true)){NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();if(n==sizeof(s)&&validSettings(s))ns=s;}
     tick=millis();liters=0;reading=previousValid=false;previousFlow=0;
+    gState.totalLitersX10=0;
 }
 bool nozzle_save(const NozzleSettings &s){
     if(bench_test_active()||!validSettings(s))return false;
@@ -64,6 +77,10 @@ void nozzle_update(){
     if(reading&&previousValid&&mask==previousMask&&dt<=2000)liters+=(previousFlow+q)*0.5*dt/60000.0;
     previousFlow=q;previousValid=reading;previousMask=mask;
     gState.actualFlowX10=reading?(int)lroundf(q*10):0;
+    // Publish the estimated total to the field consumed by the main-screen UI.
+    // Job accounting continues to use nozzle_total_liters() directly, so this
+    // is display synchronization only and does not add litres a second time.
+    gState.totalLitersX10=estimated_liters_x10(liters);
 }
 bool nozzle_reading_valid(){return reading;}
 double nozzle_total_liters(){return liters;}
