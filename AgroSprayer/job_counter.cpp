@@ -40,13 +40,18 @@ void job_counter_update(){
     lastJobVolume=total;lastJobHectares=hectares;
     lastJobAreaLiters=areaLiters;lastJobSprayMs=sprayMs;
     const bool bench=bench_test_active(),skip=bench||wasBench;wasBench=bench;
-    if(!running||skip||job.magic!=JOB_MAGIC)return;
-    if(volume>0){job.liters+=volume;dirtyJob=true;}
-    if(area>0){job.hectares+=area;dirtyJob=true;}
-    if(areaVolume>0){job.areaLiters+=areaVolume;dirtyJob=true;}
-    if(sprayDelta>0){job.sprayMs+=sprayDelta;dirtyJob=true;}
+    if(running&&!skip&&job.magic==JOB_MAGIC){
+        if(volume>0){job.liters+=volume;dirtyJob=true;}
+        if(area>0){job.hectares+=area;dirtyJob=true;}
+        if(areaVolume>0){job.areaLiters+=areaVolume;dirtyJob=true;}
+        if(sprayDelta>0){job.sprayMs+=sprayDelta;dirtyJob=true;}
+    }
+    // A failed pause/save must still be retried while the job is stopped.
+    // Back off to 5 s after a failed write instead of waiting for the normal
+    // 60 s periodic checkpoint or retrying on every UI tick.
     const uint32_t now=millis();
-    if(dirtyJob&&(uint32_t)(now-lastJobSave)>=60000){
+    const uint32_t saveInterval=jobSaveOk?60000u:5000u;
+    if(dirtyJob&&(uint32_t)(now-lastJobSave)>=saveInterval){
         jobSaveOk=saveJob(job);lastJobSave=now;if(jobSaveOk)dirtyJob=false;
     }
 }
@@ -60,6 +65,8 @@ bool job_counter_pause(bool pause){
     if(bench_test_active()||job.magic!=JOB_MAGIC)return false;
     job_counter_update();
     if(pause)running=false;
-    jobSaveOk=saveJob(job);if(!jobSaveOk)return false;
-    running=!pause;dirtyJob=false;baselineJob();lastJobSave=millis();return true;
+    jobSaveOk=saveJob(job);
+    lastJobSave=millis();
+    if(!jobSaveOk)return false;
+    running=!pause;dirtyJob=false;baselineJob();return true;
 }
