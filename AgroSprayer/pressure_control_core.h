@@ -96,9 +96,11 @@ public:
             return out;
         }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
-            // Keep arming over headland closures, but never move the motor.
+            // Keep AUTO armed over headland closures, but never move the motor.
+            // Preserve the pulse dead-time; if no pulse has occurred yet, start
+            // the pause clock here so resume cannot be rejected as a driver fault.
             status_ = "CZEKAM NA SEKCJE";
-            lastPulse_ = 0;
+            if (!lastPulse_) lastPulse_ = in.now;
             expectedSign_ = unanswered_ = 0;
             out.stopMotor = true;
             return out;
