@@ -63,7 +63,13 @@ void auto_regulator_update() {
             controller.disarm();
             valve_test_stop();
         } else {
-            controller.arm(snapshot());
+            // Capture the permit generation before arming. STOP invalidates it
+            // under the valve driver's mux, even if STOP races this function.
+            const uint32_t armGeneration = valve_auto_generation();
+            if (!requestStop.load(std::memory_order_acquire) &&
+                controller.arm(snapshot())) {
+                if (!valve_auto_arm(armGeneration)) controller.disarm();
+            }
         }
     }
     const agroreg::Input s=snapshot();
@@ -71,7 +77,8 @@ void auto_regulator_update() {
     if (a.stopMotor) valve_test_stop();
     if (a.direction) {
         if (!valve_auto_pulse(a.direction,a.pulseMs)) {
-            controller.driverFailed();
+            if (requestStop.load(std::memory_order_acquire)) controller.disarm();
+            else controller.driverFailed();
             valve_test_stop();
         }
     }
