@@ -6,7 +6,8 @@ void valve_test_arm();
 void valve_test_stop(); // Stops, disarms manual test and invalidates pending AUTO permits.
 bool valve_test_pulse(int direction); // +1 or -1; never queues or extends a pulse.
 bool valve_test_armed();
- 
+int valve_test_direction();
+
 // Direct operator command: one 250 ms pulse, no queue and no extension.
 bool valve_manual_pulse(int direction); // +1=open, -1=close.
 
