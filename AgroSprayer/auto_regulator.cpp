@@ -74,7 +74,12 @@ void auto_regulator_update() {
     }
     const agroreg::Input s=snapshot();
     const agroreg::Action a=controller.step(s);
-    if (a.stopMotor) valve_test_stop();
+    if (a.stopMotor) {
+        // The controller stays armed during headland closure. Pause motion only;
+        // a real STOP/fault disarms it and invalidates the AUTO permit.
+        if (controller.armed()) valve_auto_pause();
+        else valve_test_stop();
+    }
     if (a.direction) {
         if (!valve_auto_pulse(a.direction,a.pulseMs)) {
             if (requestStop.load(std::memory_order_acquire)) controller.disarm();

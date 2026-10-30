@@ -98,6 +98,14 @@ bool valve_auto_arm(uint32_t expectedGeneration) {
     portEXIT_CRITICAL(&mux);
     return allowed;
 }
+void valve_auto_pause() {
+    // A headland pause is not STOP: stop motion but keep the valid AUTO permit.
+    portENTER_CRITICAL(&mux);
+    outputsOff();
+    direction = 0;
+    stopped = millis();
+    portEXIT_CRITICAL(&mux);
+}
 static bool startPulse(int requested, uint32_t duration,
                        bool requireArm, bool requireAutoArm) {
     portENTER_CRITICAL(&mux);

@@ -16,6 +16,8 @@ bool valve_manual_pulse(int direction); // +1=open, -1=close.
 // with valve_test_stop() by the valve driver's critical section.
 uint32_t valve_auto_generation();
 bool valve_auto_arm(uint32_t expectedGeneration);
+// Stops current motion but preserves the AUTO permit for temporary headland pauses.
+void valve_auto_pause();
 
 // Automatic regulation: single pulse <=250ms; requires a current AUTO permit.
 bool valve_auto_pulse(int logicalDirection, uint32_t durationMs);
