@@ -27,6 +27,7 @@ agroreg::Input snapshot() {
     s.sensorValid = pressure_sensor_valid();
     s.pressureTrip = pressure_sensor_overpressure();
     s.driverReady = valve_test_ready();
+    s.driverCanPulse = valve_auto_pulse_ready();
     s.benchMode = bench_test_active();
     // Manual diagnostic UNLOCK is also an interlock against automatic arming.
     s.motorMoving = valve_test_direction() != 0 || valve_test_armed();
