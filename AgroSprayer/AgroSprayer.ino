@@ -14,6 +14,7 @@
 #include <stdarg.h>
 #include "aog.h"
 #include "nozzle_model.h"
+#include "job_counter.h"
 #include "ui.h"
 
 static esp_lcd_panel_handle_t panel = nullptr;
@@ -61,6 +62,9 @@ void loop() {
     if ((uint32_t)(now - lastNozzleUpdate) >= NOZZLE_ESTIMATE_INTERVAL_MS) {
         lastNozzleUpdate = now;
         nozzle_update();
+        // Account job volume/area at the same 10 ms cadence as the nozzle estimator,
+        // not from the 200 ms LVGL refresh path.
+        job_counter_update();
     }
 
     auto_regulator_update();
