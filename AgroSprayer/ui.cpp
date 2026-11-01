@@ -2554,7 +2554,6 @@ void ui_update()
 {
     bench_test_tick();
     tank_counter_update();
-    job_counter_update();
     job_refresh();
     info_refresh();
     char buf[96];
