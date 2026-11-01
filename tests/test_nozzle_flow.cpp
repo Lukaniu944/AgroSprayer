@@ -21,6 +21,19 @@ int main() {
         ++checks;
     };
 
+    test(agronozzle::section_flow_state(true, false, 0) ==
+             agronozzle::SectionFlowState::Simulation,
+         "bench simulation has explicit status");
+    test(agronozzle::section_flow_state(false, false, 0) ==
+             agronozzle::SectionFlowState::NoAogData,
+         "stale AOG data is not reported as intentional sections-off");
+    test(agronozzle::section_flow_state(false, true, 0) ==
+             agronozzle::SectionFlowState::AllSectionsOff,
+         "fresh AOG with zero active nozzles is intentional sections-off");
+    test(agronozzle::section_flow_state(false, true, 5) ==
+             agronozzle::SectionFlowState::ActiveSections,
+         "fresh AOG with active nozzles enables pressure-based estimate");
+
     // Manufacturer 11003 water table: exact published points.
     static constexpr float waterPressure[] = {2.0f, 2.5f, 3.0f, 3.5f, 4.0f};
     static constexpr float waterFlow[] = {0.96f, 1.08f, 1.18f, 1.27f, 1.39f};

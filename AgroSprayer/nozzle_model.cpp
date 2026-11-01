@@ -66,13 +66,25 @@ void nozzle_update(){
     uint8_t mask=0;int count=0;for(int i=0;i<6;i++)if(gState.sections[i]){mask|=1<<i;count+=ns.counts[i];}
     const bool fresh=gState.aogOk&&gState.rxPackets>0&&(uint32_t)(now-gState.lastAogMs)<=AOG_TIMEOUT_MS;
     float q=0;reading=false;
-    if(bench_test_active())status="SYMULACJA";
-    else if(!count){reading=true;status="SEKCJE WYLACZONE";}
-    else if(!fresh)status="BRAK DANYCH SEKCJI";
-    else if(!pressure_sensor_valid())status="BRAK CZUJNIKA";
-    else {float one=nozzle_flow(pressure_sensor_bar_x10()/10.0f,ns);
-        if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
-        else status="CISNIENIE POZA TABELA";
+    switch(agronozzle::section_flow_state(bench_test_active(),fresh,count)) {
+        case agronozzle::SectionFlowState::Simulation:
+            status="SYMULACJA";
+            break;
+        case agronozzle::SectionFlowState::NoAogData:
+            status="BRAK DANYCH SEKCJI";
+            break;
+        case agronozzle::SectionFlowState::AllSectionsOff:
+            reading=true;
+            status="SEKCJE WYLACZONE";
+            break;
+        case agronozzle::SectionFlowState::ActiveSections:
+            if(!pressure_sensor_valid())status="BRAK CZUJNIKA";
+            else {
+                float one=nozzle_flow(pressure_sensor_bar_x10()/10.0f,ns);
+                if(std::isfinite(one)){q=one*count;reading=true;status="OBLICZONE Z CISNIENIA";}
+                else status="CISNIENIE POZA TABELA";
+            }
+            break;
     }
     if(reading&&previousValid&&mask==previousMask&&dt<=2000)liters+=(previousFlow+q)*0.5*dt/60000.0;
     previousFlow=q;previousValid=reading;previousMask=mask;

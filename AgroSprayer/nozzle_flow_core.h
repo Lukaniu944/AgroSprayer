@@ -92,4 +92,23 @@ inline float nozzle_target_pressure_from_table(float totalLpm, int nozzleCount,
     return (lo + hi) * 0.5f;
 }
 
+
+enum class SectionFlowState : uint8_t {
+    Simulation,
+    NoAogData,
+    AllSectionsOff,
+    ActiveSections
+};
+
+// A stale AOG connection must never be reported as an intentional all-sections-off
+// state merely because the watchdog has already cleared the cached section mask.
+inline SectionFlowState section_flow_state(bool benchMode, bool aogFresh,
+                                           int activeNozzleCount)
+{
+    if (benchMode) return SectionFlowState::Simulation;
+    if (!aogFresh) return SectionFlowState::NoAogData;
+    if (activeNozzleCount <= 0) return SectionFlowState::AllSectionsOff;
+    return SectionFlowState::ActiveSections;
+}
+
 } // namespace agronozzle
