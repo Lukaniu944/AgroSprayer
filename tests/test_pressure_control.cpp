@@ -38,6 +38,25 @@ int main() {
     }
     in=good();
     {
+        Controller c;
+        in.pauseMs=100;
+        test(c.arm(in), "arm for hardware cooldown wait test");
+        test(c.step(in).direction==-1, "first pulse before cooldown test");
+        in.now+=350;
+        in.pressureBar=2.6f;
+        in.driverCanPulse=false;
+        const auto waiting=c.step(in);
+        test(waiting.direction==0 && !waiting.stopMotor && c.armed(),
+             "driver cooldown wait does not disarm AUTO");
+        test(std::strcmp(c.status(), "OCZEKUJE NA STEROWNIK")==0,
+             "driver cooldown has explicit waiting status");
+        in.now+=10;
+        in.driverCanPulse=true;
+        test(c.step(in).direction==-1 && c.armed(),
+             "AUTO resumes when hardware dead-time expires");
+    }
+    in=good();
+    {
         Controller c;c.arm(in);c.step(in);
         in.connected=false;in.now+=50;
         test(c.step(in).stopMotor && !c.armed(),"AOG loss trips");
