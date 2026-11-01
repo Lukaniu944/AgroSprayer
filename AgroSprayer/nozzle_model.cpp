@@ -6,6 +6,8 @@
 #include "ui.h"
 #include <Preferences.h>
 #include <cmath>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 static NozzleSettings ns;
 static bool reading=false,previousValid=false;
 static double liters=0;
@@ -13,6 +15,19 @@ static float previousFlow=0;
 static uint32_t tick=0;
 static uint8_t previousMask=0;
 static const char *status="BRAK CZUJNIKA";
+static SemaphoreHandle_t nozzleMutex=nullptr;
+
+// The estimator is called by the main loop, while nozzle_save() and its
+// getters can also be reached from LVGL callbacks on the display task.
+class NozzleLock {
+public:
+    NozzleLock() : held_(nozzleMutex &&
+        xSemaphoreTake(nozzleMutex, portMAX_DELAY) == pdTRUE) {}
+    ~NozzleLock() { if (held_) xSemaphoreGive(nozzleMutex); }
+    explicit operator bool() const { return held_; }
+private:
+    bool held_;
+};
 
 static int estimated_liters_x10(double totalLiters)
 {
@@ -35,17 +50,25 @@ static bool validSettings(const NozzleSettings &s){
     return true;
 }
 void nozzle_begin(){
+    if(!nozzleMutex) nozzleMutex=xSemaphoreCreateMutex();
+    if(!nozzleMutex) return;
     ns=NozzleSettings{};Preferences p;
     if(p.begin("agronozzle",true)){NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();if(n==sizeof(s)&&validSettings(s))ns=s;}
     tick=millis();liters=0;reading=previousValid=false;previousFlow=0;
     gState.totalLitersX10=0;
 }
 bool nozzle_save(const NozzleSettings &s){
-    if(bench_test_active()||!validSettings(s))return false;
-    // Settle old-profile consumption before changing calibration.
-    nozzle_update();Preferences p;if(!p.begin("agronozzle",false))return false;
+    if(bench_test_active()||!validSettings(s)||!nozzleMutex)return false;
+    // Settle the old profile through the same serialized estimator path.
+    // Keep the mutex released during NVS I/O so the 10 ms main-loop update
+    // is not stalled by flash writes; the next interval is discarded at swap.
+    nozzle_update();
+    Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
-    ns=s;previousValid=false;reading=false;return true;
+    NozzleLock lock;
+    if(!lock)return false;
+    ns=s;previousValid=false;reading=false;
+    return true;
 }
 // Both configured tables are treated as water-reference values.
 // nozzle_flow_core.h applies the 04RSM RSM 28/30/32 correction exactly once
@@ -60,8 +83,16 @@ float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     return agronozzle::nozzle_target_pressure_from_table(
         total,count,s.nozzle,s.liquid,s.waterQ3[s.nozzle],s.density);
 }
-float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
+float nozzle_target_bar(){
+    NozzleLock lock;
+    if(!lock)return NAN;
+    int n=0;const auto &s=sprayer_display_state();
+    for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];
+    return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);
+}
 void nozzle_update(){
+    NozzleLock lock;
+    if(!lock)return;
     const uint32_t now=millis(),dt=now-tick;tick=now;
     uint8_t mask=0;int count=0;for(int i=0;i<6;i++)if(gState.sections[i]){mask|=1<<i;count+=ns.counts[i];}
     const bool fresh=gState.aogOk&&gState.rxPackets>0&&(uint32_t)(now-gState.lastAogMs)<=AOG_TIMEOUT_MS;
@@ -94,6 +125,6 @@ void nozzle_update(){
     // is display synchronization only and does not add litres a second time.
     gState.totalLitersX10=estimated_liters_x10(liters);
 }
-bool nozzle_reading_valid(){return reading;}
-double nozzle_total_liters(){return liters;}
-const char *nozzle_status(){return status;}
+bool nozzle_reading_valid(){NozzleLock lock;return lock && reading;}
+double nozzle_total_liters(){NozzleLock lock;return lock ? liters : 0.0;}
+const char *nozzle_status(){NozzleLock lock;return lock ? status : "BRAK CZUJNIKA";}
