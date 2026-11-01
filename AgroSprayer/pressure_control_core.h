@@ -12,6 +12,7 @@ struct Input {
     bool sensorValid = false;
     bool pressureTrip = false;
     bool driverReady = false;
+    bool driverCanPulse = true;
     bool benchMode = false;
     bool sectionsOpen = false;
     bool motorMoving = false;
@@ -126,6 +127,13 @@ public:
         if (lastPulse_ &&
             (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
             status_ = "PRZERWA PO IMPULSIE";
+            return out;
+        }
+        // The driver's physical post-stop dead-time is independent of the
+        // regulator's command-time pause. Wait here instead of treating a
+        // normal cooldown rejection as a driver fault.
+        if (!in.driverCanPulse) {
+            status_ = "OCZEKUJE NA STEROWNIK";
             return out;
         }
         const int desiredSign = error > 0 ? 1 : -1;
