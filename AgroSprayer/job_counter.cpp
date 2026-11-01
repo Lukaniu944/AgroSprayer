@@ -4,18 +4,38 @@
 #include "ui.h"
 #include <Preferences.h>
 #include <cmath>
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
+
 struct SavedJob {uint32_t magic;float liters;float hectares;float areaLiters;uint64_t sprayMs;};
 static constexpr uint32_t JOB_MAGIC=0x4a4f4232;
 static SavedJob job{};
 static bool running=false,dirtyJob=false,jobSaveOk=true,wasBench=false;
 static double lastJobVolume=0;
 static uint32_t lastJobTick=0,lastJobSave=0;
+static SemaphoreHandle_t jobMutex=nullptr;
+
+class JobLock {
+public:
+    JobLock() : held_(jobMutex &&
+        xSemaphoreTakeRecursive(jobMutex, portMAX_DELAY) == pdTRUE) {}
+    ~JobLock() {
+        if (held_) xSemaphoreGiveRecursive(jobMutex);
+    }
+    explicit operator bool() const { return held_; }
+private:
+    bool held_;
+};
+
 static bool saveJob(const SavedJob &value){
     Preferences p;if(!p.begin("agrojob",false))return false;
     const auto n=p.putBytes("state",&value,sizeof(value));p.end();return n==sizeof(value);
 }
 static void baselineJob(){lastJobVolume=nozzle_total_liters();lastJobTick=millis();wasBench=bench_test_active();}
 void job_counter_begin(){
+    if(!jobMutex)jobMutex=xSemaphoreCreateRecursiveMutex();
+    JobLock lock;
+    if(!lock){jobSaveOk=false;return;}
     job={};running=false;dirtyJob=false;jobSaveOk=true;Preferences p;
     if(p.begin("agrojob",true)){
         SavedJob saved{};const auto n=p.getBytes("state",&saved,sizeof(saved));p.end();
@@ -24,6 +44,8 @@ void job_counter_begin(){
     baselineJob();lastJobSave=millis();
 }
 void job_counter_update(){
+    JobLock lock;
+    if(!lock)return;
     const uint32_t now=millis(),elapsed=now-lastJobTick;
     const double total=nozzle_total_liters(),volume=total-lastJobVolume;
     lastJobTick=now;lastJobVolume=total;
@@ -42,14 +64,20 @@ void job_counter_update(){
     }
     if(dirtyJob&&(uint32_t)(now-lastJobSave)>=60000){jobSaveOk=saveJob(job);lastJobSave=now;if(jobSaveOk)dirtyJob=false;}
 }
-JobReading job_counter_read(){return {job.liters,job.hectares,job.areaLiters,job.sprayMs,job.magic==JOB_MAGIC,running,jobSaveOk};}
+JobReading job_counter_read(){
+    JobLock lock;
+    if(!lock)return {0,0,0,0,false,false,false};
+    return {job.liters,job.hectares,job.areaLiters,job.sprayMs,job.magic==JOB_MAGIC,running,jobSaveOk};
+}
 bool job_counter_new(){
-    if(bench_test_active())return false;
+    JobLock lock;
+    if(!lock||bench_test_active())return false;
     SavedJob next{};next.magic=JOB_MAGIC;jobSaveOk=saveJob(next);if(!jobSaveOk)return false;
     job=next;running=true;dirtyJob=false;baselineJob();lastJobSave=millis();return true;
 }
 bool job_counter_pause(bool pause){
-    if(bench_test_active()||job.magic!=JOB_MAGIC)return false;
+    JobLock lock;
+    if(!lock||bench_test_active()||job.magic!=JOB_MAGIC)return false;
     job_counter_update();
     if(pause)running=false;
     jobSaveOk=saveJob(job);if(!jobSaveOk)return false;
