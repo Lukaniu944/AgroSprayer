@@ -16,6 +16,8 @@ bool valve_manual_pulse(int direction); // +1=open, -1=close.
 // with valve_test_stop() by the valve driver's critical section.
 uint32_t valve_auto_generation();
 bool valve_auto_arm(uint32_t expectedGeneration);
+// Read-only preflight for AUTO: includes the driver's 100 ms post-stop dead-time.
+bool valve_auto_pulse_ready();
 // Stops current motion but preserves the AUTO permit for temporary headland pauses.
 void valve_auto_pause();
 
