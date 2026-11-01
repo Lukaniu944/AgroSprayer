@@ -41,8 +41,16 @@ static int estimated_liters_x10(double totalLiters)
 }
 
 const NozzleSettings &nozzle_settings(){return ns;}
-const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
-const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
+const char *nozzle_name(){
+    NozzleLock lock;
+    return lock && ns.nozzle ? "04RSM" : "11003";
+}
+const char *nozzle_liquid_name(){
+    static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};
+    NozzleLock lock;
+    if(!lock)return "WODA";
+    return names[ns.liquid < 5 ? ns.liquid : 0];
+}
 static bool validSettings(const NozzleSettings &s){
     if(s.magic!=0x4e5a4c31||s.nozzle>1||s.liquid>4||!nozzle_profile_compatible(s.nozzle,s.liquid)||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
@@ -59,15 +67,16 @@ void nozzle_begin(){
 }
 bool nozzle_save(const NozzleSettings &s){
     if(bench_test_active()||!validSettings(s)||!nozzleMutex)return false;
-    // Settle the old profile through the same serialized estimator path.
-    // Keep the mutex released during NVS I/O so the 10 ms main-loop update
-    // is not stalled by flash writes; the next interval is discarded at swap.
-    nozzle_update();
+    // Keep the estimator and its gState publication owned by the Arduino loop.
+    // Calling nozzle_update() from the LVGL task would race with job_counter_update().
+    // The main loop continues using the old profile during NVS I/O; after the
+    // serialized profile swap, discard the transition interval rather than
+    // mixing old- and new-profile flow samples.
     Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
     NozzleLock lock;
     if(!lock)return false;
-    ns=s;previousValid=false;reading=false;
+    ns=s;previousValid=false;reading=false;previousFlow=0;
     return true;
 }
 // Both configured tables are treated as water-reference values.
