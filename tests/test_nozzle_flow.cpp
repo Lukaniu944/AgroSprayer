@@ -1,8 +1,13 @@
 #include "nozzle_flow_core.h"
+#include "nozzle_model.h"
+#include <type_traits>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
+
+static_assert(std::is_same<decltype(nozzle_settings()), NozzleSettings>::value,
+              "nozzle_settings must return a value snapshot, not a shared reference");
 
 static bool near(float a, float b, float eps = 0.002f) {
     return std::isfinite(a) && std::fabs(a - b) <= eps;

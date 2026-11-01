@@ -1,5 +1,5 @@
 #pragma once
-#include <Arduino.h>
+#include <stdint.h>
 struct NozzleSettings {
     uint32_t magic=0x4e5a4c31;
     uint8_t nozzle=0, liquid=0;
@@ -7,7 +7,7 @@ struct NozzleSettings {
     float waterQ3[2]={1.18f,1.54f};
     float density=1.0f;
 };
-const NozzleSettings &nozzle_settings();
+NozzleSettings nozzle_settings();
 void nozzle_begin();
 bool nozzle_save(const NozzleSettings &settings);
 float nozzle_flow(float bar,const NozzleSettings &settings);

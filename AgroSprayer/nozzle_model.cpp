@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "nozzle_model.h"
 #include "nozzle_profile_compatibility.h"
 #include "nozzle_flow_core.h"
@@ -40,7 +41,12 @@ static int estimated_liters_x10(double totalLiters)
     return static_cast<int>(std::lround(scaled));
 }
 
-const NozzleSettings &nozzle_settings(){return ns;}
+NozzleSettings nozzle_settings(){
+    NozzleLock lock;
+    // Return an independent snapshot; never expose the shared settings object
+    // after releasing the mutex.
+    return lock ? ns : NozzleSettings{};
+}
 const char *nozzle_name(){
     NozzleLock lock;
     return lock && ns.nozzle ? "04RSM" : "11003";
