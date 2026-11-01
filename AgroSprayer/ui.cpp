@@ -2552,7 +2552,6 @@ static void create_valve_test()
 
 void ui_update()
 {
-    nozzle_update();
     bench_test_tick();
     tank_counter_update();
     job_counter_update();

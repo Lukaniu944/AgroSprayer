@@ -13,10 +13,13 @@
 #include "esp_log.h"
 #include <stdarg.h>
 #include "aog.h"
+#include "nozzle_model.h"
 #include "ui.h"
 
 static esp_lcd_panel_handle_t panel = nullptr;
 static uint32_t lastUi = 0;
+static uint32_t lastNozzleUpdate = 0;
+static constexpr uint32_t NOZZLE_ESTIMATE_INTERVAL_MS = 10;
 // GPIO43/44 are L298N IN1/IN2 and are also UART0 TX/RX on this board.
 // ROM boot output can toggle TX before setup: keep L298N ENA physically
 // disabled during reset/boot/flashing. Do not start Serial on these pins.
@@ -51,9 +54,16 @@ void loop() {
     aog_update();
 
     pressure_sensor_update();
-    auto_regulator_update();
 
+    // Keep consumption estimation independent of the LVGL refresh/lock.
+    // A 10 ms cadence limits the interval skipped on a section-mask change.
     uint32_t now=millis();
+    if ((uint32_t)(now - lastNozzleUpdate) >= NOZZLE_ESTIMATE_INTERVAL_MS) {
+        lastNozzleUpdate = now;
+        nozzle_update();
+    }
+
+    auto_regulator_update();
     if(now-lastUi>=200){
         lastUi=now;
         if(lvgl_lock(100)){
