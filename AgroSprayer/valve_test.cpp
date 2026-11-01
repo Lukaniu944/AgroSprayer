@@ -98,6 +98,15 @@ bool valve_auto_arm(uint32_t expectedGeneration) {
     portEXIT_CRITICAL(&mux);
     return allowed;
 }
+bool valve_auto_pulse_ready() {
+    portENTER_CRITICAL(&mux);
+    const uint32_t now = millis();
+    const bool pressureSafe = pressure_sensor_valid() && !pressure_sensor_overpressure();
+    const bool allowed = ready && pressureSafe && !direction &&
+        autoPulsePermit.allows() && (uint32_t)(now - stopped) >= 100;
+    portEXIT_CRITICAL(&mux);
+    return allowed;
+}
 void valve_auto_pause() {
     // A headland pause is not STOP: stop motion but keep the valid AUTO permit.
     portENTER_CRITICAL(&mux);
