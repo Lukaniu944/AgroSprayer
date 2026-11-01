@@ -39,6 +39,34 @@ int main() {
     in=good();
     {
         Controller c;
+        in.pulseMs=50;
+        test(c.arm(in), "minimum 50 ms pulse is accepted");
+        const auto a=c.step(in);
+        test(a.direction==-1 && a.pulseMs==50, "minimum pulse is passed through unchanged");
+    }
+    in=good();in.pulseMs=251;
+    { Controller c; test(!c.arm(in), "pulse above 250 ms cannot arm"); }
+    in=good();in.pauseMs=99;
+    { Controller c; test(!c.arm(in), "pause below 100 ms cannot arm"); }
+    in=good();in.pauseMs=3001;
+    { Controller c; test(!c.arm(in), "pause above 3000 ms cannot arm"); }
+    in=good();in.tolerancePercent=0;
+    { Controller c; test(!c.arm(in), "zero tolerance cannot arm"); }
+    in=good();in.tolerancePercent=21;
+    { Controller c; test(!c.arm(in), "tolerance above 20 percent cannot arm"); }
+    in=good();
+    {
+        Controller c;
+        test(c.arm(in), "arm before runtime settings corruption test");
+        c.step(in);
+        in.pulseMs=251;in.now+=50;
+        const auto alarm=c.step(in);
+        test(alarm.stopMotor && !c.armed(),
+             "invalid runtime pulse setting stops and disarms AUTO");
+    }
+    in=good();
+    {
+        Controller c;
         in.pauseMs=100;
         test(c.arm(in), "arm for hardware cooldown wait test");
         test(c.step(in).direction==-1, "first pulse before cooldown test");

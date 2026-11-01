@@ -5,6 +5,22 @@
 #include <cstdint>
 
 namespace agroreg {
+// One authoritative pulse/settings range shared by the controller, NVS and UI.
+constexpr uint32_t MIN_PULSE_MS = 50;
+constexpr uint32_t MAX_PULSE_MS = 250;
+constexpr uint32_t MIN_PAUSE_MS = 100;
+constexpr uint32_t MAX_PAUSE_MS = 3000;
+constexpr uint32_t MIN_TOLERANCE_PERCENT = 1;
+constexpr uint32_t MAX_TOLERANCE_PERCENT = 20;
+
+constexpr bool valid_settings(uint32_t pulseMs, uint32_t pauseMs,
+                              uint32_t tolerancePercent) {
+    return pulseMs >= MIN_PULSE_MS && pulseMs <= MAX_PULSE_MS &&
+           pauseMs >= MIN_PAUSE_MS && pauseMs <= MAX_PAUSE_MS &&
+           tolerancePercent >= MIN_TOLERANCE_PERCENT &&
+           tolerancePercent <= MAX_TOLERANCE_PERCENT;
+}
+
 struct Input {
     uint32_t now = 0;
     bool autoMode = false;
@@ -57,8 +73,9 @@ public:
     bool armed() const { return armed_; }
     const char *status() const { return status_; }
     bool arm(const Input &in) {
-        if (!valid(in) || !in.sectionsOpen || in.speedX10 <= 0 ||
-            in.motorMoving) {
+        if (!valid(in) ||
+            !valid_settings(in.pulseMs, in.pauseMs, in.tolerancePercent) ||
+            !in.sectionsOpen || in.speedX10 <= 0 || in.motorMoving) {
             status_ = "BRAK WARUNKOW STARTU";
             return false;
         }
@@ -96,6 +113,11 @@ public:
             out.stopMotor = true;
             return out;
         }
+        if (!valid_settings(in.pulseMs, in.pauseMs, in.tolerancePercent)) {
+            fault("STOP: USTAWIENIA REGULATORA");
+            out.stopMotor = true;
+            return out;
+        }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
             // Keep AUTO armed over headland closures, but never move the motor.
             // Preserve the pulse dead-time; if no pulse has occurred yet, start
@@ -123,7 +145,7 @@ public:
             status_ = "RUCH ZAWORU";
             return out;
         }
-        const uint32_t pulse = in.pulseMs < 250 ? in.pulseMs : 250;
+        const uint32_t pulse = in.pulseMs;
         if (lastPulse_ &&
             (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
             status_ = "PRZERWA PO IMPULSIE";
@@ -157,7 +179,7 @@ public:
         // This motor drives the Bypass: closing raises spray pressure.
         // The existing A/B direction swap must first be checked by operator.
         out.direction = desiredSign > 0 ? -1 : 1;
-        out.pulseMs = pulse >= 50 ? pulse : 50;
+        out.pulseMs = pulse;
         lastPulse_ = in.now;
         pressureBefore_ = in.pressureBar;
         expectedSign_ = desiredSign;
