@@ -28,6 +28,7 @@ jobs:
           /tmp/agrosprayer-valve-auto-gate-ubsan
 
   esp32-build:
+    needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
