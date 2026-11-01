@@ -89,6 +89,52 @@ int main() {
                   5.0f, 0, 1, 2, 1.54f, 1.30f)),
          "zero nozzle count rejected");
 
+
+    // Six-section 21 m boom: the configured geometry is 2.5/4/4/4/4/2.5 m
+    // and 5/8/8/8/8/5 nozzles. At a constant application rate and speed,
+    // closing any combination of sections must change total flow and nozzle
+    // count proportionally, leaving the per-nozzle target pressure unchanged.
+    static constexpr float sectionWidthM[] = {2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f};
+    static constexpr int sectionNozzles[] = {5, 8, 8, 8, 8, 5};
+    constexpr float rateLHa = 200.0f;
+    constexpr float speedKmh = 8.0f;
+    auto targetForSectionMask = [&](uint8_t mask, uint8_t nozzle,
+                                    uint8_t liquid, float calibratedQ3) {
+        float activeWidthM = 0.0f;
+        int activeNozzles = 0;
+        for (int i = 0; i < 6; ++i) {
+            if ((mask & (1u << i)) != 0) {
+                activeWidthM += sectionWidthM[i];
+                activeNozzles += sectionNozzles[i];
+            }
+        }
+        const float totalLpm = rateLHa * speedKmh * activeWidthM / 600.0f;
+        return nozzle_target_pressure_from_table(
+            totalLpm, activeNozzles, nozzle, liquid, calibratedQ3, 1.0f);
+    };
+
+    float fullWidthM = 0.0f;
+    int fullNozzles = 0;
+    for (int i = 0; i < 6; ++i) {
+        fullWidthM += sectionWidthM[i];
+        fullNozzles += sectionNozzles[i];
+    }
+    test(near(fullWidthM, 21.0f) && fullNozzles == 42,
+         "six-section reference configuration is 21 m and 42 nozzles");
+    test(!std::isfinite(targetForSectionMask(0, 0, 0, 1.18f)),
+         "all sections closed has no water pressure target");
+
+    for (uint8_t mask = 1; mask < 64; ++mask) {
+        test(near(targetForSectionMask(mask, 0, 0, 1.18f),
+                  targetForSectionMask(0x3F, 0, 0, 1.18f), 0.002f),
+             "11003 target pressure remains stable for every active section mask");
+        for (uint8_t liquid = 1; liquid <= 3; ++liquid) {
+            test(near(targetForSectionMask(mask, 1, liquid, 1.54f),
+                      targetForSectionMask(0x3F, 1, liquid, 1.54f), 0.002f),
+                 "04RSM target pressure remains stable for every active section mask");
+        }
+    }
+
     std::cout << "OK: " << checks << " nozzle-flow assertions passed\n";
     return 0;
 }
