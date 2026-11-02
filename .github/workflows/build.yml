@@ -28,6 +28,9 @@ jobs:
           /tmp/agrosprayer-valve-auto-gate-ubsan
 
   esp32-build:
+    # A branch push is the single daily firmware build. PR runs still execute
+    # all native tests above, but must not compile a second ESP32-S3 image.
+    if: github.event_name != 'pull_request'
     needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
@@ -40,9 +43,9 @@ jobs:
           arduino-cli lib install lvgl@9.6.0
       - name: Compile Arduino (with built-in LVGL config)
         run: |
-          arduino-cli compile --fqbn 'esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=huge_app' \
-            --build-property 'compiler.cpp.extra_flags=-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_16=1 -DLV_FONT_MONTSERRAT_20=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_28=1' \
-            --build-property 'compiler.c.extra_flags=-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_16=1 -DLV_FONT_MONTSERRAT_20=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_28=1' \
+          arduino-cli compile --fqbn 'esp32:esp32:esp32s3:PSRAM=opi,PartitionScheme=huge_app' \\
+            --build-property 'compiler.cpp.extra_flags=-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_16=1 -DLV_FONT_MONTSERRAT_20=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_28=1' \\
+            --build-property 'compiler.c.extra_flags=-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_16=1 -DLV_FONT_MONTSERRAT_20=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_28=1' \\
             --warnings all --output-dir dist AgroSprayer
       - name: Save firmware binary for bench testing
         uses: actions/upload-artifact@v4
