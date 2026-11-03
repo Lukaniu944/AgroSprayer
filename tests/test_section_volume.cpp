@@ -97,5 +97,41 @@ int main() {
     v.sample(3600u, 0x3f, 30.0f, false);
     v.sample(4600u, 0x3f, 30.0f, true);
     check(near(v.liters(), 1.1), "invalid sensor interval does not add liters");
+    // Volume, area and spray time must share the same section-event clock.
+    v.reset();
+    v.sample(1000u, 0x3f, 60.0f, true, 80, 21.0f);
+    v.sample(2000u, 0x3f, 60.0f, true, 80, 21.0f);
+    check(near(v.liters(), 1.0), "area test volume baseline");
+    check(near(v.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0), "full width area 1 s");
+    check(near(v.areaLiters(), 1.0), "moving liters match full-width volume");
+    check(v.sprayMs() == 1000u, "full-width spray time");
+    v.settleBeforeSectionChange(2500u, true);
+    check(near(v.liters(), 1.5), "transition adds old-mask liters");
+    check(near(v.hectares(), 80.0 * 21.0 * 1500.0 / 360000000.0), "transition adds old-mask area");
+    check(v.sprayMs() == 1500u, "transition adds old-mask spray time");
+    v.sample(2500u, 0x1f, 30.0f, true, 80, 17.0f);
+    v.sample(3500u, 0x1f, 30.0f, true, 80, 17.0f);
+    check(near(v.liters(), 2.0), "new-mask liters after transition");
+    check(near(v.hectares(), (80.0 * 21.0 * 1500.0 + 80.0 * 17.0 * 1000.0) / 360000000.0),
+          "new-mask hectares use 17 m not 21 m");
+    check(near(v.areaLiters(), 2.0), "area liters align with event-segmented volume");
+    check(v.sprayMs() == 2500u, "spray time aligns with volume");
+    v.sample(3600u, 0x0f, 20.0f, true, 80, 13.0f);
+    check(near(v.hectares(), (80.0 * 21.0 * 1500.0 + 80.0 * 17.0 * 1000.0) / 360000000.0),
+          "unknown mask change adds no area");
+    v.reset();
+    v.sample(1000u, 0x3f, 60.0f, true, 0, 21.0f);
+    v.sample(2000u, 0x3f, 60.0f, true, 0, 21.0f);
+    check(near(v.liters(), 1.0) && near(v.hectares(), 0.0), "stationary spray counts liters but no hectares");
+    check(near(v.areaLiters(), 0.0) && v.sprayMs() == 1000u, "stationary spray time, no area liters");
+    v.sample(3000u, 0x3f, 60.0f, false, 80, 21.0f);
+    check(near(v.hectares(), 0.0) && v.sprayMs() == 1000u, "stale sensor adds no area or time");
+    v.reset();
+    v.sample(UINT32_MAX - 500u, 0x3f, 60.0f, true, 80, 21.0f);
+    v.sample(499u, 0x3f, 60.0f, true, 80, 21.0f);
+    check(near(v.hectares(), 80.0 * 21.0 * 1000.0 / 360000000.0), "area handles millis rollover");
+    v.reset();
+    check(near(v.hectares(), 0.0) && near(v.areaLiters(), 0.0) && v.sprayMs() == 0,
+          "reset clears area and spray time");
     std::cout << "OK: " << checks << " section volume assertions passed\n";
 }

@@ -128,9 +128,12 @@ void nozzle_update(){
         volumeIntegrator.settleBeforeSectionChange(
             eventMs, !bench_test_active() && fresh && pressure_sensor_valid());
     }
-    volumeIntegrator.sample(now,mask,q,reading);
+    volumeIntegrator.sample(now,mask,q,reading,gState.speedX10,ui_get_active_boom_width_m());
     gState.actualFlowX10=reading?(int)lroundf(q*10):0;
 }
 bool nozzle_reading_valid(){return reading;}
 double nozzle_total_liters(){return volumeIntegrator.liters();}
+double nozzle_total_hectares(){return volumeIntegrator.hectares();}
+double nozzle_area_liters(){return volumeIntegrator.areaLiters();}
+uint64_t nozzle_total_spray_ms(){return volumeIntegrator.sprayMs();}
 const char *nozzle_status(){return status;}
