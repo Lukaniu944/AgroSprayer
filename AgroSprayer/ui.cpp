@@ -1976,6 +1976,7 @@ void ui_create()
 
     scrNavigation = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrNavigation, C_BG(), 0);
+    lv_obj_set_style_bg_opa(scrNavigation, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scrNavigation, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *navPanel = panel(scrNavigation, 12, 12, 1000, 526, C_BORDER());
     font28(label(navPanel, LV_SYMBOL_GPS "  NAWIGACJA", 24, 20, C_GREEN()));
