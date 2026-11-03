@@ -1,20 +1,26 @@
 #include "job_counter.h"
 #include "nozzle_model.h"
 #include "sprayer_state.h"
-#include "ui.h"
 #include <Preferences.h>
 #include <cmath>
 struct SavedJob {uint32_t magic;float liters;float hectares;float areaLiters;uint64_t sprayMs;};
 static constexpr uint32_t JOB_MAGIC=0x4a4f4232;
 static SavedJob job{};
 static bool running=false,dirtyJob=false,jobSaveOk=true,wasBench=false;
-static double lastJobVolume=0;
-static uint32_t lastJobTick=0,lastJobSave=0;
+static double lastJobVolume=0,lastJobHectares=0,lastJobAreaLiters=0;
+static uint64_t lastJobSprayMs=0;
+static uint32_t lastJobSave=0;
 static bool saveJob(const SavedJob &value){
     Preferences p;if(!p.begin("agrojob",false))return false;
     const auto n=p.putBytes("state",&value,sizeof(value));p.end();return n==sizeof(value);
 }
-static void baselineJob(){lastJobVolume=nozzle_total_liters();lastJobTick=millis();wasBench=bench_test_active();}
+static void baselineJob(){
+    lastJobVolume=nozzle_total_liters();
+    lastJobHectares=nozzle_total_hectares();
+    lastJobAreaLiters=nozzle_area_liters();
+    lastJobSprayMs=nozzle_total_spray_ms();
+    wasBench=bench_test_active();
+}
 void job_counter_begin(){
     job={};running=false;dirtyJob=false;jobSaveOk=true;Preferences p;
     if(p.begin("agrojob",true)){
@@ -24,23 +30,25 @@ void job_counter_begin(){
     baselineJob();lastJobSave=millis();
 }
 void job_counter_update(){
-    const uint32_t now=millis(),elapsed=now-lastJobTick;
+    // Consume all counters from the same event-segmented model clock.
+    // The UI tick must not assign an entire interval to the final section mask.
     const double total=nozzle_total_liters(),volume=total-lastJobVolume;
-    lastJobTick=now;lastJobVolume=total;
+    const double hectares=nozzle_total_hectares(),area=hectares-lastJobHectares;
+    const double areaLiters=nozzle_area_liters(),areaVolume=areaLiters-lastJobAreaLiters;
+    const uint64_t sprayMs=nozzle_total_spray_ms();
+    const uint64_t sprayDelta=sprayMs>=lastJobSprayMs?sprayMs-lastJobSprayMs:0;
+    lastJobVolume=total;lastJobHectares=hectares;
+    lastJobAreaLiters=areaLiters;lastJobSprayMs=sprayMs;
     const bool bench=bench_test_active(),skip=bench||wasBench;wasBench=bench;
     if(!running||skip||job.magic!=JOB_MAGIC)return;
     if(volume>0){job.liters+=volume;dirtyJob=true;}
-    // Area/time are estimates from commands, not physical section feedback.
-    bool any=false;for(int i=0;i<SECTION_COUNT;i++)any|=gState.sections[i];
-    if(any&&nozzle_reading_valid()&&gState.actualFlowX10>0&&volume>0&&elapsed<=2000){
-        job.sprayMs+=elapsed;dirtyJob|=elapsed>0;
-        if(gState.aogOk&&gState.speedX10>0){
-            float width=0;for(int i=0;i<SECTION_COUNT;i++)if(gState.sections[i])width+=ui_get_section_width_m(i);
-            job.areaLiters+=volume;
-            job.hectares+=(double)gState.speedX10*width*elapsed/360000000.0;
-        }
+    if(area>0){job.hectares+=area;dirtyJob=true;}
+    if(areaVolume>0){job.areaLiters+=areaVolume;dirtyJob=true;}
+    if(sprayDelta>0){job.sprayMs+=sprayDelta;dirtyJob=true;}
+    const uint32_t now=millis();
+    if(dirtyJob&&(uint32_t)(now-lastJobSave)>=60000){
+        jobSaveOk=saveJob(job);lastJobSave=now;if(jobSaveOk)dirtyJob=false;
     }
-    if(dirtyJob&&(uint32_t)(now-lastJobSave)>=60000){jobSaveOk=saveJob(job);lastJobSave=now;if(jobSaveOk)dirtyJob=false;}
 }
 JobReading job_counter_read(){return {job.liters,job.hectares,job.areaLiters,job.sprayMs,job.magic==JOB_MAGIC,running,jobSaveOk};}
 bool job_counter_new(){

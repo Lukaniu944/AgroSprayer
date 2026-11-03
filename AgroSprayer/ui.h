@@ -2,6 +2,7 @@
 
 void ui_create();
 void ui_update();
+void ui_update_model();
 
 float ui_get_section_width_m(int index);
 float ui_get_total_boom_width_m();

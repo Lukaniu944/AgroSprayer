@@ -15,6 +15,8 @@
 #include "tank_counter.h"
 #include "job_counter.h"
 #include "nozzle_model.h"
+#include "auto_regulator.h"
+#include "valve_ui_interlock.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -47,6 +49,7 @@ static lv_obj_t *lblTarget;
 static lv_obj_t *lblPressure;
 static lv_obj_t *valvePanel = nullptr, *valveStatus = nullptr;
 static lv_obj_t *valvePressure = nullptr;
+static lv_obj_t *valveAutoButton = nullptr, *valveAutoStatus = nullptr;
 static void create_valve_test();
 static void valve_refresh();
 static lv_obj_t *lblTank;
@@ -299,7 +302,14 @@ static void rate_plus_cb(lv_event_t *)
 static void auto_cb(lv_event_t *)
 {
     if (bench_test_active()) return;
+    auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = true;
     prevSectionStateValid=false;
@@ -310,6 +320,7 @@ static void auto_cb(lv_event_t *)
 static void man_cb(lv_event_t *)
 {
     if (bench_test_active()) return;
+    auto_regulator_stop();
     valve_test_stop();
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = false;
@@ -324,7 +335,7 @@ static void manual_valve_cb(lv_event_t *e)
     valve_manual_pulse((int)(intptr_t)lv_event_get_user_data(e));
     ui_update();
 }
-static void manual_valve_stop_cb(lv_event_t *) { valve_test_stop();ui_update(); }
+static void manual_valve_stop_cb(lv_event_t *) { auto_regulator_stop();valve_test_stop();ui_update(); }
 
 static void section_cb(lv_event_t *e)
 {
@@ -340,6 +351,7 @@ static void section_cb(lv_event_t *e)
         return;
     }
 
+    nozzle_section_change_at(millis());
     sprayer_display_state().sections[i] = !sprayer_display_state().sections[i];
 
     // Natychmiastowa reakcja wizualna - bez czekania na ui_update().
@@ -403,6 +415,8 @@ static void all_cb(lv_event_t *)
         }
     }
 
+    // All-on or all-off changes at least one section.
+    nozzle_section_change_at(millis());
     for (int i = 0; i < SECTION_COUNT; i++) {
         sprayer_display_state().sections[i] = anyOff;
 
@@ -1966,6 +1980,8 @@ void ui_create()
 
 static void release_detail_editors()
 {
+    // Navigating away from a panel must never re-energize the motor.
+    auto_regulator_stop();
     close_quick_input();
     if(nozzlePanel)lv_obj_delete(nozzlePanel);
     nozzlePanel=nozzleSelect=liquidSelect=nozzleMessage=nullptr;for(auto &v:nozzleValues)v=nullptr;
@@ -1983,6 +1999,7 @@ static void release_detail_editors()
         lv_obj_delete(valvePanel);
     }
     valvePanel = valveStatus = valvePressure = valveDirectionButton = nullptr;
+    valveAutoButton = valveAutoStatus = nullptr;
     if (benchPanel) lv_obj_delete(benchPanel);
     benchPanel = benchStatus = benchSpeed = benchFlow = benchTarget = benchReg = benchAuto = nullptr;
     for (int i = 0; i < SECTION_COUNT; ++i) benchSections[i] = nullptr;
@@ -2392,6 +2409,9 @@ static void valve_refresh()
         dir == -1 ? "KIERUNEK B - IMPULS 1 s" :
         valve_test_armed() ? "GOTOWY - WYJSCIE ZATRZYMANE" : "TEST ZABLOKOWANY";
     set_label_text_if_changed(valveStatus, status);
+    if(valveAutoButton) set_label_text_if_changed(lv_obj_get_child(valveAutoButton,0),
+        auto_regulator_armed() ? "AUTO REG: WYLACZ" : "AUTO REG: WLACZ");
+    if(valveAutoStatus) set_label_text_if_changed(valveAutoStatus,auto_regulator_status());
     if(valveDirectionButton) set_label_text_if_changed(lv_obj_get_child(valveDirectionButton,0),
         valve_open_direction()==1 ? "OTWORZ = A | ZAMIEN KIERUNKI" : "OTWORZ = B | ZAMIEN KIERUNKI");
     char text[96];
@@ -2404,16 +2424,17 @@ static void valve_refresh()
 }
 static void valve_direction_cb(lv_event_t *) {
     if(bench_test_active())return;
+    auto_regulator_stop();
     if(!valve_toggle_open_direction()) {set_label_text_if_changed(valveStatus,"BLAD ZAPISU KIERUNKU");return;}
     valve_refresh();
 }
 static void valve_arm_cb(lv_event_t *) {
-    if (!bench_test_active()) valve_test_arm();
+    if (!bench_test_active() && !auto_regulator_armed()) valve_test_arm();
     valve_refresh();
 }
-static void valve_stop_cb(lv_event_t *) { valve_test_stop(); valve_refresh(); }
+static void valve_stop_cb(lv_event_t *) { auto_regulator_stop(); valve_test_stop(); valve_refresh(); }
 static void valve_pulse_cb(lv_event_t *e) {
-    if (!bench_test_active()) valve_test_pulse((int)(intptr_t)lv_event_get_user_data(e));
+    if (!bench_test_active() && !auto_regulator_armed()) valve_test_pulse((int)(intptr_t)lv_event_get_user_data(e));
     valve_refresh();
 }
 static void regulator_editor_refresh() {
@@ -2452,6 +2473,7 @@ static void regulator_save_cb(lv_event_t *) {
 static void regulator_back_cb(lv_event_t *) {release_detail_editors();create_valve_test();}
 static void regulator_open_cb(lv_event_t *) {
     if(bench_test_active())return;
+    auto_regulator_stop();
     release_detail_editors();create_regulator_settings();
 }
 static void create_regulator_settings() {
@@ -2478,8 +2500,14 @@ static void create_regulator_settings() {
     home_control(regulatorPanel,632,315,288,56,"WROC",regulator_back_cb);
     regulator_editor_refresh();
 }
+static void valve_auto_toggle_cb(lv_event_t *) {
+    if(bench_test_active())return;
+    auto_regulator_toggle_request();
+}
 static void create_valve_test()
 {
+    // The manual diagnostic screen takes control only after automatic mode is OFF.
+    auto_regulator_stop();
     valve_test_stop();
     valvePanel = panel(settingsDetailPanel, 12, 12, 952, 396, C_ORANGE());
     valveStatus = label(valvePanel, "TEST ZABLOKOWANY", 24, 18, C_ORANGE());
@@ -2488,7 +2516,10 @@ static void create_valve_test()
     font20(valvePressure);
     lv_obj_t *regSettings=button(valvePanel,24,105,876,62,"USTAWIENIA REGULATORA | impuls / przerwa / tolerancja",regulator_open_cb);
     font20(lv_obj_get_child(regSettings,0));
-    font16(label(valvePanel,"Test mostka: ODBLOKUJ, potem A lub B. Impuls testowy: 1 s.",24,184,C_MUTED()));
+    valveAutoButton=home_control(valvePanel,24,178,432,46,"AUTO REG: WLACZ",valve_auto_toggle_cb);
+    lv_obj_set_style_text_font(lv_obj_get_child(valveAutoButton,0),&home_font_18,0);
+    valveAutoStatus=home_text(valvePanel,"WYLACZONY",472,190,C_ORANGE(),&lv_font_montserrat_16);
+    lv_obj_set_width(valveAutoStatus,428);
     button(valvePanel, 24, 235, 276, 56, "KIERUNEK A - 1 s", valve_pulse_cb, (void *)(intptr_t)1);
     button(valvePanel, 324, 235, 276, 56, "KIERUNEK B - 1 s", valve_pulse_cb, (void *)(intptr_t)-1);
     button(valvePanel, 624, 235, 276, 56, "STOP / BLOKADA", valve_stop_cb);
@@ -2498,12 +2529,17 @@ static void create_valve_test()
     valve_refresh();
 }
 
-void ui_update()
+void ui_update_model()
 {
+    // No widget updates here. Run at 100 ms, even if visual refresh is not due.
     nozzle_update();
     bench_test_tick();
     tank_counter_update();
     job_counter_update();
+}
+
+void ui_update()
+{
     job_refresh();
     info_refresh();
     char buf[96];
@@ -2802,7 +2838,9 @@ void ui_update()
         lv_obj_remove_state(btnMan, LV_STATE_DISABLED);
     }
 
-    if((sprayer_display_state().autoMode || bench_test_active()) && valve_test_direction()!=0) valve_test_stop();
+    if (agrovalve::shouldStopMotorForUi(sprayer_display_state().autoMode,
+                                           bench_test_active(), auto_regulator_armed(),
+                                           valve_test_direction()!=0)) valve_test_stop();
     const bool valveDisabled=sprayer_display_state().autoMode || bench_test_active() || !valve_test_ready();
     for(lv_obj_t *b : {btnValveOpen,btnValveClose}) {
         if(lv_obj_has_state(b,LV_STATE_DISABLED)!=valveDisabled) {
