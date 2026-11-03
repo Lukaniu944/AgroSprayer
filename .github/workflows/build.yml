@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Native C++17 regulator tests (no ESP32 hardware)
+      - name: Native C++17 regulator and link-guard tests (no ESP32 hardware)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_control.cpp -o /tmp/agrosprayer-pressure-test
           /tmp/agrosprayer-pressure-test
@@ -18,6 +18,14 @@ jobs:
           /tmp/agrosprayer-section-volume-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-ubsan
           /tmp/agrosprayer-section-volume-ubsan
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_nozzle_calibration.cpp -o /tmp/agrosprayer-nozzle-calibration-test
+          /tmp/agrosprayer-nozzle-calibration-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_nozzle_calibration.cpp -o /tmp/agrosprayer-nozzle-calibration-ubsan
+          /tmp/agrosprayer-nozzle-calibration-ubsan
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_aog_link_guard.cpp -o /tmp/agrosprayer-aog-link-guard-test
+          /tmp/agrosprayer-aog-link-guard-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_aog_link_guard.cpp -o /tmp/agrosprayer-aog-link-guard-ubsan
+          /tmp/agrosprayer-aog-link-guard-ubsan
 
   esp32-build:
     runs-on: ubuntu-latest

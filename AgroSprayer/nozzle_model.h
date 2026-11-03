@@ -8,6 +8,7 @@ struct NozzleSettings {
     float density=1.0f;
 };
 const NozzleSettings &nozzle_settings();
+bool nozzle_profile_valid(const NozzleSettings &settings);
 void nozzle_begin();
 bool nozzle_save(const NozzleSettings &settings);
 float nozzle_flow(float bar,const NozzleSettings &settings);

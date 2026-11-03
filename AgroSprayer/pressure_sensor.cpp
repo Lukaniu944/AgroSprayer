@@ -1,4 +1,5 @@
 #include "pressure_sensor.h"
+#include "pressure_sensor_math.h"
 #include "board_config.h"
 #include "hw_i2c.h"
 #include <math.h>
@@ -56,17 +57,21 @@ void pressure_sensor_update() {
     uint16_t raw;
     if (!readRegister(0, raw)) { busError(); return; }
     pending = false;
-    const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
-    signalMv = (int)lroundf(sensorV * 1000.0f);
-    if (!isfinite(sensorV) || sensorV < PRESSURE_VALID_MIN_V || sensorV > PRESSURE_VALID_MAX_V) {
+    const float sensorV = agropres::sensorVoltageFromAdcRaw(
+        static_cast<int16_t>(raw), PRESSURE_DIVIDER_RATIO);
+    signalMv = std::isfinite(sensorV) ? (int)lroundf(sensorV * 1000.0f) : -1;
+    if (!agropres::sensorVoltageValid(
+            sensorV, PRESSURE_VALID_MIN_V, PRESSURE_VALID_MAX_V)) {
         valid = filtered = false;
         return;
     }
-    float measuredBar = (sensorV - PRESSURE_ZERO_V) / (PRESSURE_FULL_V - PRESSURE_ZERO_V)
-                        * PRESSURE_MAX_PSI * 0.0689475729f;
-    const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
-    if (measuredBar < 0) measuredBar = 0;
-    if (measuredBar > maxBar) measuredBar = maxBar;
+    float measuredBar = 0.0f;
+    if (!agropres::sensorVoltageToBar(
+            sensorV, PRESSURE_ZERO_V, PRESSURE_FULL_V,
+            PRESSURE_MAX_PSI, measuredBar)) {
+        valid = filtered = false;
+        return;
+    }
     bar = filtered ? bar + 0.25f * (measuredBar - bar) : measuredBar;
     filtered = valid = true;
     lastGood = now;

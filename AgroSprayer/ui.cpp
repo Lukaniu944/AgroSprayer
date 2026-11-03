@@ -168,7 +168,7 @@ static lv_obj_t *panel(
 
     lv_obj_set_pos(o, x, y);
     lv_obj_set_size(o, w, h);
-    lv_obj_clear_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(o, false);
 
     lv_obj_set_style_radius(o, 10, 0);
     lv_obj_set_style_bg_color(o, C_PANEL(), 0);
@@ -322,6 +322,12 @@ static void man_cb(lv_event_t *)
     if (bench_test_active()) return;
     auto_regulator_stop();
     valve_test_stop();
+    for (int i=0; i<SECTION_COUNT; ++i) {
+        if (sprayer_display_state().sections[i]) {
+            nozzle_section_change_at(millis());
+            break;
+        }
+    }
     for (int i=0; i<SECTION_COUNT; ++i) sprayer_display_state().sections[i]=false;
     sprayer_display_state().autoMode = false;
     prevSectionStateValid=false;
@@ -818,12 +824,12 @@ static void flow_cal_input_open_cb(lv_event_t *)
     if (flowCalRunning) return;
     flowCalInput[0] = '\0';
     set_label_text_if_changed(flowCalInputLabel, "WPISZ RZECZYWISTE LITRY");
-    lv_obj_clear_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, false);
 }
 
 static void flow_cal_input_cancel_cb(lv_event_t *)
 {
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_input_key_cb(lv_event_t *e)
@@ -853,7 +859,7 @@ static void flow_cal_input_accept_cb(lv_event_t *)
         return;
     }
     flow_cal_set_volume((int)(liters * 10.0 + 0.5));
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 }
 
 static void flow_cal_save_cb(lv_event_t *)
@@ -919,8 +925,8 @@ static void settings_detail_cb(lv_event_t *e)
         release_detail_editors();
         set_label_text_if_changed(detailMsg, "Najpierw nacisnij ZAKONCZ TEST w pasku SYMULACJA.");
         set_label_text_if_changed(detailMsg2, "Kalibracja i zapis ustawien wymagaja zakonczenia testu.");
-        lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(detailMsg, false);
+        lv_obj_set_hidden(detailMsg2, false);
         lv_screen_load(scrSettingsDetail);
         return;
     }
@@ -951,33 +957,33 @@ static void settings_detail_cb(lv_event_t *e)
 
     if (sectionEditorPanel) {
         if (sectionMode) {
-            lv_obj_clear_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, false);
         } else {
-            lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(sectionEditorPanel, true);
         }
     }
 
     if (flowCalPanel) {
         if (flowMode) {
-            lv_obj_clear_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, false);
         } else {
-            lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(flowCalPanel, true);
         }
     }
 
     if (detailMsg) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, true);
         } else {
-            lv_obj_clear_flag(detailMsg, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg, false);
         }
     }
 
     if (detailMsg2) {
         if (sectionMode || flowMode || benchMode || valveMode) {
-            lv_obj_add_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, true);
         } else {
-            lv_obj_clear_flag(detailMsg2, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_set_hidden(detailMsg2, false);
         }
     }
 
@@ -1450,7 +1456,7 @@ static void quick_accept_cb(lv_event_t *)
         const float minimum=i==0?.1f:i==1?.8f:1;
         const float maximum=i==0?5:i==1?1.6f:40;
         if(end==text||*end||!std::isfinite(value)||value<minimum||value>maximum||(i>=2&&value!=(int)value)) {
-            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (WODA, 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
+            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (przy 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
         }
         if(i==0)nozzleDraft.waterQ3[nozzleDraft.nozzle]=value;
         else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;}
@@ -1493,7 +1499,7 @@ static void quick_open_input_cb(lv_event_t *e)
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
-    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
+    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
     quickEntry[0]=0;
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
@@ -1658,7 +1664,10 @@ static void nozzle_editor_refresh(){
         set_label_text_if_changed(nozzleValues[i],b);
     }
     int n=0;for(auto count:nozzleDraft.counts)n+=count;
-    snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
+    if(!nozzle_profile_valid(nozzleDraft))
+        snprintf(b,sizeof(b),"NIEZGODNY PROFIL: 11003=WODA/WLASNA, 04RSM=RSM 28/30/32");
+    else
+        snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
     set_label_text_if_changed(nozzleMessage,b);
 }
 static void nozzle_cycle_cb(lv_event_t *e){
@@ -1668,6 +1677,10 @@ static void nozzle_cycle_cb(lv_event_t *e){
     nozzleDirty=true;nozzle_editor_refresh();
 }
 static void nozzle_save_cb(lv_event_t *){
+    if(!nozzle_profile_valid(nozzleDraft)){
+        set_label_text_if_changed(nozzleMessage,"NIEZGODNY PROFIL: 11003=WODA/WLASNA, 04RSM=RSM 28/30/32");
+        return;
+    }
     if(nozzle_save(nozzleDraft)){nozzleDirty=false;nozzle_editor_refresh();ui_update();}
     else set_label_text_if_changed(nozzleMessage,"BLAD ZAPISU - ustawienia nie zostaly zastosowane.");
 }
@@ -1742,7 +1755,7 @@ void ui_create()
 
     lv_obj_set_style_bg_color(scr, C_BG(), 0);
     lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scr, false);
 
     // Geometry follows the approved 1024 x 600 dashboard reference.
     lv_obj_t *top = panel(scr, 14, 4, 996, 36, C_BG());
@@ -1886,7 +1899,7 @@ void ui_create()
     scrSettings = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettings, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettings, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettings, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettings, false);
 
     create_quick_settings();
 
@@ -1896,7 +1909,7 @@ void ui_create()
     scrSettingsDetail = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrSettingsDetail, C_BG(), 0);
     lv_obj_set_style_bg_opa(scrSettingsDetail, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(scrSettingsDetail, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrSettingsDetail, false);
 
     lv_obj_t *detailTop = panel(
         scrSettingsDetail,
@@ -1956,7 +1969,7 @@ void ui_create()
 
     scrNavigation = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrNavigation, C_BG(), 0);
-    lv_obj_clear_flag(scrNavigation, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scrollable(scrNavigation, false);
     lv_obj_t *navPanel = panel(scrNavigation, 12, 12, 1000, 526, C_BORDER());
     font28(label(navPanel, LV_SYMBOL_GPS "  NAWIGACJA", 24, 20, C_GREEN()));
     font24(label(navPanel, "Podglad mapy wymaga integracji z AgOpenGPS.", 24, 212, C_TEXT()));
@@ -1968,7 +1981,7 @@ void ui_create()
     lv_obj_t *simulationLabel = label(simulationBar, "SYMULACJA", 14, 17, C_ORANGE());
     font20(simulationLabel);
     button(simulationBar, 216, 5, 236, 44, "ZAKONCZ TEST", bench_end_cb);
-    lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(simulationBar, true);
 
 }
 
@@ -2023,7 +2036,7 @@ static void create_section_editor()
         756, 250,
         C_BLUE()
     );
-    lv_obj_add_flag(sectionEditorPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(sectionEditorPanel, true);
 
     sectionEditorTitle =
         label(
@@ -2117,7 +2130,7 @@ static void create_flow_calibration()
         836, 340,
         C_GREEN()
     );
-    lv_obj_add_flag(flowCalPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalPanel, true);
 
     flowCalCurrent = label(flowCalPanel, "AKTUALNIE: -- imp/L", 24, 14, C_TEXT());
     font20(flowCalCurrent);
@@ -2152,7 +2165,7 @@ static void create_flow_calibration()
 
     // Persistent keypad: created once, no screen rebuilding during a test.
     flowCalInputPanel = panel(flowCalPanel, 0, 0, 836, 340, C_BLUE());
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_clickable(flowCalInputPanel, true);
     flowCalInputLabel = label(flowCalInputPanel, "WPISZ RZECZYWISTE LITRY", 24, 35, C_TEXT());
     font20(flowCalInputLabel);
     label(flowCalInputPanel, "Litry: dokladnosc 0.1 L", 24, 90, C_MUTED());
@@ -2168,7 +2181,7 @@ static void create_flow_calibration()
     lv_obj_set_size(matrix, 324, 300);
     lv_obj_set_style_text_font(matrix, &lv_font_montserrat_20, LV_PART_ITEMS);
     lv_obj_add_event_cb(matrix, flow_cal_input_key_cb, LV_EVENT_VALUE_CHANGED, nullptr);
-    lv_obj_add_flag(flowCalInputPanel, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(flowCalInputPanel, true);
 
     flow_cal_refresh();
 
@@ -2545,8 +2558,8 @@ void ui_update()
     char buf[96];
     snprintf(buf,sizeof(buf),"%s | %s  >",nozzle_name(),nozzle_liquid_name());set_label_text_if_changed(homeProfile,buf);
     if (simulationBar) {
-        if (bench_test_active()) lv_obj_clear_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(simulationBar, LV_OBJ_FLAG_HIDDEN);
+        if (bench_test_active()) lv_obj_set_hidden(simulationBar, false);
+        else lv_obj_set_hidden(simulationBar, true);
     }
     if (lv_screen_active()==scrSettings) quick_settings_refresh();
     if (benchPanel) bench_refresh();
@@ -2564,8 +2577,14 @@ void ui_update()
 
     set_label_text_if_changed(lblTankPct,tankReading.configured ? (tankReading.saveOk?"Wyliczone":"Blad zapisu") : "Dotknij: ustaw");
     const float wantedPressure=nozzle_target_bar();
-    if(std::isfinite(wantedPressure)&&wantedPressure<=5.5f)snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
-    else snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
+    // Match the displayed AUTO target to pressure_control_core.h: 2.0-4.8 bar.
+    // The nozzle table may calculate higher RSM pressures, but AUTO rejects them.
+    if(std::isfinite(wantedPressure)&&wantedPressure>=2.0f&&wantedPressure<=4.8f)
+        snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
+    else if(std::isfinite(wantedPressure))
+        snprintf(buf,sizeof(buf),"%s\nCel poza zakresem AUTO (2.0-4.8 bar)",nozzle_status());
+    else
+        snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
     set_label_text_if_changed(nozzleHomeInfo,buf);
     // Detail panels above keep updating; hidden home widgets wait until return.
     if (lv_screen_active() != scrHome) return;

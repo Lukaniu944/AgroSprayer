@@ -2,7 +2,9 @@
 #include "../AgroSprayer/valve_ui_interlock.h"
 #include "../AgroSprayer/aog_link_guard.h"
 #include "../AgroSprayer/nozzle_calibration_core.h"
+#include "../AgroSprayer/pressure_sensor_math.h"
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -23,35 +25,103 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
-    // 04RSM table: 3 bar = 1.54 l/min; 4 bar = 1.78 l/min.
-    // Q3 is the measured water output at 3 bar. Preserve V1/V2
-    // estimated output when migrating stored settings to V3.
+    // ADS1115 raw-count, divider, voltage-window and psi-to-bar conversion tests.
     {
-        auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+        auto near = [](float a, float b, float tol = 1e-4f) {
+            return std::fabs(a - b) <= tol;
+        };
+        const float zeroRawV = agropres::sensorVoltageFromAdcRaw(2667, 1.5f);
+        test(near(zeroRawV, 0.5f, 0.001f),
+             "ADS1115 raw count converts to 0.5 V sensor output");
+        test(agropres::sensorVoltageValid(zeroRawV, 0.3f, 4.7f),
+             "valid sensor voltage accepted");
+        const float fullRawV = agropres::sensorVoltageFromAdcRaw(24000, 1.5f);
+        test(near(fullRawV, 4.5f), "ADS1115 raw count converts to 4.5 V sensor output");
+        test(agropres::sensorVoltageValid(fullRawV, 0.3f, 4.7f),
+             "full-scale sensor voltage remains in accepted diagnostic window");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(0, 1.5f), 0.3f, 4.7f),
+             "zero raw count is rejected as an implausible sensor voltage");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(32767, 1.5f), 0.3f, 4.7f),
+             "ADC value above sensor voltage window is rejected");
+        test(!agropres::sensorVoltageValid(
+                 agropres::sensorVoltageFromAdcRaw(-100, 1.5f), 0.3f, 4.7f),
+             "negative ADC sample is rejected");
+        test(!std::isfinite(agropres::sensorVoltageFromAdcRaw(24000, 0.0f)),
+             "invalid divider ratio cannot produce a voltage");
+        float bar = -1.0f;
+        test(agropres::sensorVoltageToBar(0.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 0.0f), "0.5 V maps to zero bar");
+        test(agropres::sensorVoltageToBar(2.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 40.0f * agropres::kPsiToBar),
+             "midpoint voltage maps to 40 psi in bar");
+        test(agropres::sensorVoltageToBar(4.5f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 80.0f * agropres::kPsiToBar),
+             "4.5 V maps to the 80 psi sensor ceiling");
+
+        // End-to-end checkpoints for the installed 0.5–4.5 V / 0–80 psi
+        // sensor and 1.5:1 divider, using raw ADS1115 counts at known pressures.
+        const struct { int16_t raw; float expectedBar; } checkpoints[] = {
+            {10402, 2.0f},
+            {14270, 3.0f},
+            {18137, 4.0f},
+            {21231, 4.8f}
+        };
+        for (const auto &point : checkpoints) {
+            const float sensorV =
+                agropres::sensorVoltageFromAdcRaw(point.raw, 1.5f);
+            float reconstructedBar = -1.0f;
+            test(agropres::sensorVoltageValid(sensorV, 0.3f, 4.7f),
+                 "known pressure checkpoint stays in diagnostic voltage window");
+            test(agropres::sensorVoltageToBar(
+                     sensorV, 0.5f, 4.5f, 80.0f, reconstructedBar) &&
+                 near(reconstructedBar, point.expectedBar, 0.002f),
+                 "ADS1115 raw count reconstructs known pressure within 0.002 bar");
+        }
+        test(agropres::sensorVoltageToBar(0.3f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 0.0f), "low accepted diagnostic voltage clamps to zero bar");
+        test(agropres::sensorVoltageToBar(4.7f, 0.5f, 4.5f, 80.0f, bar) &&
+             near(bar, 80.0f * agropres::kPsiToBar),
+             "high accepted diagnostic voltage clamps to sensor ceiling");
+        test(!agropres::sensorVoltageToBar(
+                 std::numeric_limits<float>::quiet_NaN(), 0.5f, 4.5f, 80.0f, bar),
+             "NaN sensor voltage is rejected");
+        test(!agropres::sensorVoltageToBar(2.5f, 4.5f, 0.5f, 80.0f, bar),
+             "reversed calibration endpoints are rejected");
+        test(!agropres::sensorVoltageToBar(2.5f, 0.5f, 4.5f, 0.0f, bar),
+             "non-positive sensor pressure range is rejected");
+    }
+    // 04RSM table values are l/min of water. Q3 calibration is a water
+    // measurement at 3 bar; the selected RSM profile applies the published factor.
+    // Preserve the calibrated curve when migrating stored settings to V3.
+    {
+        auto eq=[](float a,float b,float tol=1e-5f){return std::fabs(a-b)<tol;};
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.0f),1.54f),
-             "04RSM default Q3 matches 3-bar table");
+             "04RSM water table matches at density 1.0");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,2.0f,1,1.0f),2.0f),
-             "04RSM measured 3-bar water Q3");
+             "04RSM water Q3 calibration at 3 bar");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.54f,agronozzle::migrateLegacyRsmQ3(1.54f),1,1.0f),1.54f),
-             "V1 Q3 migration preserves estimated output");
+             "V1 Q3 migration preserves water curve");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.54f,agronozzle::migrateV2RsmQ3(1.78f),1,1.0f),1.54f),
-             "V2 default migration preserves estimated output");
+             "V2 default migration preserves water curve");
         test(eq(agronozzle::calibratedWaterFlow(
                  1.78f,agronozzle::migrateV2RsmQ3(2.0f),1,1.0f),2.0f),
-             "V2 user calibration preserves 4-bar estimate");
+             "V2 user calibration preserves 4-bar water estimate");
         test(eq(agronozzle::calibratedWaterFlow(1.18f,1.18f,0,1.0f),1.18f),
-             "11003 Q3 unchanged");
+             "11003 water Q3 unchanged");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.32f),
-                1.54f/std::sqrt(1.32f)),
-             "RSM density correction applied once");
+                1.54f/1.15f, 0.001f),
+             "RSM 32 correction applied once");
         for(float q : {0.1f,0.5f,1.78f,2.0f,5.0f}) {
             for(float density : {1.0f,1.32f}) {
-                const float oldFlow=1.54f*(q/1.78f)/std::sqrt(density);
+                const float oldFlow=1.54f*(q/1.78f)/
+                    agronozzle::liquidCorrectionFactor(1,density);
                 const float newFlow=agronozzle::calibratedWaterFlow(
                     1.54f,agronozzle::migrateV2RsmQ3(q),1,density);
-                test(eq(oldFlow,newFlow),"V2 migration preserves water/RSM flow");
+                test(eq(oldFlow,newFlow),"V2 migration preserves corrected RSM estimate");
             }
         }
     }
@@ -208,6 +278,57 @@ int main() {
         auto alarm=c.step(in);
         test(alarm.stopMotor && !c.armed(),"reverse polarity trips");
     }
+    // A pulse at millis()==0 must still start the full pulse+pause lockout.
+    in=good(); in.now=0;
+    {
+        Controller c; test(c.arm(in),"arm at millis zero");
+        test(c.step(in).direction==-1,"first pulse at millis zero");
+        in.now=999;
+        test(c.step(in).direction==0,"lockout remains active when last pulse timestamp is zero");
+        in.now=1000;
+        test(c.step(in).direction==-1,"pulse allowed exactly at cooldown boundary");
+    }
+    // The same cooldown must remain correct across the 32-bit millis rollover.
+    in=good(); in.now=UINT32_MAX-200u;
+    {
+        Controller c; test(c.arm(in),"arm before millis rollover");
+        test(c.step(in).direction==-1,"first pulse before millis rollover");
+        in.now=798u;
+        test(c.step(in).direction==0,"rollover lockout blocks at 999 ms");
+        in.now=799u;
+        test(c.step(in).direction==-1,"rollover lockout expires at 1000 ms");
+    }
+    // The emitted minimum pulse is 50 ms even if configuration requests 0 ms.
+    // Lockout must use the emitted duration, not the raw configuration.
+    in=good(); in.now=100; in.pulseMs=0; in.pauseMs=0;
+    {
+        Controller c;
+        test(c.arm(in),"arm before minimum pulse lockout test");
+        auto first=c.step(in);
+        test(first.direction!=0 && first.pulseMs==50,
+             "configured zero pulse is emitted as 50 ms");
+        in.now=149;
+        auto blocked=c.step(in);
+        test(blocked.direction==0 && !blocked.stopMotor,
+             "minimum pulse lockout blocks before 50 ms");
+        in.now=150;
+        auto next=c.step(in);
+        test(next.direction!=0 && next.pulseMs==50,
+             "minimum pulse lockout expires at 50 ms");
+    }
+    // A corrupt maximum pause plus pulse must not wrap a 32-bit cooldown.
+    // Keep elapsed time below the 2 s loop watchdog to isolate the lockout.
+    in=good(); in.now=100; in.pulseMs=250; in.pauseMs=UINT32_MAX;
+    {
+        Controller c;
+        test(c.arm(in),"arm before maximum pause overflow test");
+        test(c.step(in).direction!=0,"first pulse before maximum pause");
+        in.now=400;
+        auto blocked=c.step(in);
+        test(blocked.direction==0 && !blocked.stopMotor &&
+             std::strcmp(c.status(),"PRZERWA PO IMPULSIE")==0,
+             "maximum pause cannot overflow and bypass cooldown");
+    }
     in=good();
     {
         Controller c;test(c.arm(in),"arm before target-reached test");
@@ -308,6 +429,28 @@ int main() {
         in.now=4001;
         test(c.step(in).stopMotor && !c.armed(),"blocked loop trips");
     }
+    // The watchdog must not use timestamp zero as an "uninitialized" sentinel.
+    in=good(); in.now=0;
+    {
+        Controller c;
+        test(c.arm(in),"arm watchdog at millis zero");
+        in.now=2001;
+        auto a=c.step(in);
+        test(a.stopMotor && !c.armed() &&
+             std::strcmp(c.status(),"PRZERWA PROGRAMU")==0,
+             "loop watchdog trips after 2000 ms when last tick was zero");
+    }
+    // Unsigned elapsed-time arithmetic must also survive millis rollover.
+    in=good(); in.now=UINT32_MAX-1000u;
+    {
+        Controller c;
+        test(c.arm(in),"arm watchdog before millis rollover");
+        in.now=1000u;
+        auto a=c.step(in);
+        test(a.stopMotor && !c.armed() &&
+             std::strcmp(c.status(),"PRZERWA PROGRAMU")==0,
+             "loop watchdog trips after rollover with 2001 ms elapsed");
+    }
     // Exhaustive PGN234 six-section mask regression: 64 masks x 4 modes.
     // Tests packet encoding only; physical relay fail-safe needs a separate test.
     {
@@ -337,6 +480,29 @@ int main() {
                 test(p[13] == checksum, "PGN234 checksum matrix");
             }
         }
+    }
+    // Cross-check the published RSM table against the safer AUTO control ceiling.
+    // The table can estimate 6-bar flow, but the live controller intentionally
+    // refuses targets above 4.8 bar; the installed 80-psi sensor is not a 6-bar sensor.
+    {
+        const float rsmQ6 = agronozzle::calibratedWaterFlow(2.18f, 1.54f, 1, 1.32f);
+        const float requestedAt6 = agronozzle::targetPressureForFlow(
+            rsmQ6 * 8.0f, 8, 1, 1.54f, 1.32f);
+        test(std::fabs(requestedAt6 - 6.0f) < 0.001f,
+             "RSM table can calculate the published 6-bar point");
+        auto maxAllowed = good();
+        maxAllowed.targetBar = 4.8f;
+        Controller atLimit;
+        test(atLimit.arm(maxAllowed), "AUTO accepts its configured 4.8-bar ceiling");
+        auto aboveLimit = good();
+        aboveLimit.targetBar = requestedAt6;
+        Controller above;
+        test(!above.arm(aboveLimit) && !above.armed(),
+             "6-bar RSM target is rejected by the safer AUTO controller limit");
+        aboveLimit.targetBar = 4.8001f;
+        Controller justAbove;
+        test(!justAbove.arm(aboveLimit),
+             "AUTO rejects target immediately above 4.8-bar ceiling");
     }
     std::cout<<"OK: "<<checks<<" test assertions passed\n";
 }

@@ -65,6 +65,34 @@ int main() {
     check(near(v.liters(), 1.0), "all sections off produces zero flow");
     v.sample(1999u, 0x00, -1.0f, true);
     check(near(v.liters(), 1.0), "negative flow invalidated");
+
+    // Rapid section changes spanning millis() rollover: keep only the first
+    // timestamp, settle the old mask once, then require a fresh post-change
+    // sample. This must not double-count or extrapolate through later changes.
+    {
+        agrovolume::SectionEventLatch rolloverLatch;
+        agrovolume::SectionVolumeIntegrator rolloverVolume;
+        rolloverVolume.sample(UINT32_MAX - 1500u, 0x3fu, 60.0f, true);
+        rolloverVolume.sample(UINT32_MAX - 1000u, 0x3fu, 60.0f, true);
+        check(near(rolloverVolume.liters(), 0.5),
+              "rollover transition scenario has 0.5 L baseline");
+        rolloverLatch.note(UINT32_MAX - 500u);
+        rolloverLatch.note(UINT32_MAX - 200u);
+        check(rolloverLatch.take(event) && event == UINT32_MAX - 500u,
+              "rapid rollover transitions preserve first event timestamp");
+        check(!rolloverLatch.take(event),
+              "rapid rollover event is consumed once");
+        rolloverVolume.settleBeforeSectionChange(event, true);
+        check(near(rolloverVolume.liters(), 1.0),
+              "old flow settles once to first rollover event");
+        rolloverVolume.sample(200u, 0x1fu, 30.0f, true);
+        check(near(rolloverVolume.liters(), 1.0),
+              "post-rollover transition sample only rebaselines");
+        rolloverVolume.sample(1200u, 0x1fu, 30.0f, true);
+        check(near(rolloverVolume.liters(), 1.5),
+              "integration resumes after fresh post-rollover sample");
+    }
+
     // A saved nozzle profile must not blend the old flow with the new one.
     v.reset();
     v.sample(1000u, 0x3f, 60.0f, true);
