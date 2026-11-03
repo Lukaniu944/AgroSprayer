@@ -1,4 +1,5 @@
 #include "sprayer_state.h"
+#include "pressure_control_core.h"
 #include "ui.h"
 #include <atomic>
 #include "valve_test.h"
@@ -11,8 +12,7 @@ static uint32_t s_lastTick=0, s_pulseStart=0, s_nextPulse=0;
 static int s_command=0;
 static RegulatorSettings s_regulator;
 static bool valid_regulator_settings(const RegulatorSettings &v) {
-    return v.pulseMs>=50 && v.pulseMs<=1000 && v.pauseMs>=100 && v.pauseMs<=3000 &&
-           v.tolerancePercent>=1 && v.tolerancePercent<=20;
+    return agroreg::valid_settings(v.pulseMs, v.pauseMs, v.tolerancePercent);
 }
 const RegulatorSettings &regulator_settings() { return s_regulator; }
 void regulator_settings_load() {

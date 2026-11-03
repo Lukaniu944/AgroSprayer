@@ -17,6 +17,7 @@
 #include "nozzle_model.h"
 #include "nozzle_profile_compatibility.h"
 #include "auto_regulator.h"
+#include "pressure_control_core.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -1975,6 +1976,7 @@ void ui_create()
 
     scrNavigation = lv_obj_create(nullptr);
     lv_obj_set_style_bg_color(scrNavigation, C_BG(), 0);
+    lv_obj_set_style_bg_opa(scrNavigation, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scrNavigation, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_t *navPanel = panel(scrNavigation, 12, 12, 1000, 526, C_BORDER());
     font28(label(navPanel, LV_SYMBOL_GPS "  NAWIGACJA", 24, 20, C_GREEN()));
@@ -2472,7 +2474,8 @@ static void regulator_adjust_cb(lv_event_t *e) {
     if(index<0 || index>2)return;
     uint32_t *value=index==0?&regulatorDraft.pulseMs:index==1?&regulatorDraft.pauseMs:&regulatorDraft.tolerancePercent;
     const int step=index==0?50:index==1?100:1;
-    const int low=index==0?50:index==1?100:1, high=index==0?1000:index==1?3000:20;
+    const int low=index==0?static_cast<int>(agroreg::MIN_PULSE_MS):index==1?static_cast<int>(agroreg::MIN_PAUSE_MS):static_cast<int>(agroreg::MIN_TOLERANCE_PERCENT);
+    const int high=index==0?static_cast<int>(agroreg::MAX_PULSE_MS):index==1?static_cast<int>(agroreg::MAX_PAUSE_MS):static_cast<int>(agroreg::MAX_TOLERANCE_PERCENT);
     const int next=(int)*value+sign*step;
     *value=next<low?low:next>high?high:next;
     set_label_text_if_changed(regulatorMessage,"Niezapisane zmiany - nacisnij ZAPISZ.");
@@ -2487,7 +2490,7 @@ static void regulator_save_cb(lv_event_t *) {
     if(!regulator_settings_save(regulatorDraft)) {
         set_label_text_if_changed(regulatorMessage,"BLAD ZAPISU - poprzednie ustawienia pozostaja aktywne.");return;
     }
-    set_label_text_if_changed(regulatorMessage,"ZAPISANO - ustawienia dzialaja w symulacji.");
+    set_label_text_if_changed(regulatorMessage,"ZAPISANO - ustawienia regulatora zapisane.");
 }
 static void regulator_back_cb(lv_event_t *) {release_detail_editors();create_valve_test();}
 static void regulator_open_cb(lv_event_t *) {
@@ -2499,9 +2502,9 @@ static void create_regulator_settings() {
     regulatorDraft=regulator_settings();
     regulatorPanel=panel(settingsDetailPanel,12,12,952,396,C_BORDER());
     home_text(regulatorPanel,"REGULATOR DAWKI",20,12,C_TEXT(),&home_font_24);
-    home_text(regulatorPanel,"Parametry symulacji | automatyczne sterowanie silnikiem jeszcze wylaczone",20,42,C_MUTED(),&lv_font_montserrat_16);
+    home_text(regulatorPanel,"Zakres impulsu zaworu 12 V i przerwy regulatora AUTO",20,42,C_MUTED(),&lv_font_montserrat_16);
     const char *titles[]={"IMPULS ZAWORU","PRZERWA PO IMPULSIE","TOLERANCJA DAWKI"};
-    const char *notes[]={"50-1000 ms | krok 50 ms","100-3000 ms | krok 100 ms","1-20% | krok 1%"};
+    const char *notes[]={"50-250 ms | krok 50 ms","100-3000 ms | krok 100 ms","1-20% | krok 1%"};
     for(int i=0;i<3;++i) {
         lv_obj_t *tile=panel(regulatorPanel,20+i*306,76,288,184,C_BORDER());
         home_text(tile,titles[i],12,12,C_MUTED(),&lv_font_montserrat_16);
@@ -2550,10 +2553,8 @@ static void create_valve_test()
 
 void ui_update()
 {
-    nozzle_update();
     bench_test_tick();
     tank_counter_update();
-    job_counter_update();
     job_refresh();
     info_refresh();
     char buf[96];

@@ -1,7 +1,9 @@
 name: AgroSprayer checks
 on:
   push:
-    branches: [auto-regulator-bez-przeplywomierza]
+    branches: [auto-regulator-bez-przeplywomierza, safety-interlocks-pressure-valve]
+    paths-ignore:
+      - '.github/workflows/build.yml'
   pull_request:
   workflow_dispatch:
 
@@ -10,16 +12,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Native C++17 regulator tests (no ESP32 hardware)
+      - name: Native C++17 regulator and sensor tests (no ESP32 hardware)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_control.cpp -o /tmp/agrosprayer-pressure-test
           /tmp/agrosprayer-pressure-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_pressure_sensor.cpp -o /tmp/agrosprayer-pressure-sensor-test
+          /tmp/agrosprayer-pressure-sensor-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_nozzle_profile_compatibility.cpp -o /tmp/agrosprayer-nozzle-profile-test
           /tmp/agrosprayer-nozzle-profile-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_nozzle_flow.cpp -o /tmp/agrosprayer-nozzle-flow-test
           /tmp/agrosprayer-nozzle-flow-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_aog_pgn.cpp -o /tmp/agrosprayer-aog-pgn-test
+          /tmp/agrosprayer-aog-pgn-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_valve_auto_gate.cpp -o /tmp/agrosprayer-valve-auto-gate-test
+          /tmp/agrosprayer-valve-auto-gate-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_valve_auto_gate.cpp -o /tmp/agrosprayer-valve-auto-gate-ubsan
+          /tmp/agrosprayer-valve-auto-gate-ubsan
 
   esp32-build:
+    # A branch push is the single daily firmware build. PR runs still execute
+    # all native tests above, but must not compile a second ESP32-S3 image.
+    if: github.event_name != 'pull_request'
+    needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

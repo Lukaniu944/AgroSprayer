@@ -38,6 +38,53 @@ int main() {
     }
     in=good();
     {
+        Controller c;
+        in.pulseMs=50;
+        test(c.arm(in), "minimum 50 ms pulse is accepted");
+        const auto a=c.step(in);
+        test(a.direction==-1 && a.pulseMs==50, "minimum pulse is passed through unchanged");
+    }
+    in=good();in.pulseMs=251;
+    { Controller c; test(!c.arm(in), "pulse above 250 ms cannot arm"); }
+    in=good();in.pauseMs=99;
+    { Controller c; test(!c.arm(in), "pause below 100 ms cannot arm"); }
+    in=good();in.pauseMs=3001;
+    { Controller c; test(!c.arm(in), "pause above 3000 ms cannot arm"); }
+    in=good();in.tolerancePercent=0;
+    { Controller c; test(!c.arm(in), "zero tolerance cannot arm"); }
+    in=good();in.tolerancePercent=21;
+    { Controller c; test(!c.arm(in), "tolerance above 20 percent cannot arm"); }
+    in=good();
+    {
+        Controller c;
+        test(c.arm(in), "arm before runtime settings corruption test");
+        c.step(in);
+        in.pulseMs=251;in.now+=50;
+        const auto alarm=c.step(in);
+        test(alarm.stopMotor && !c.armed(),
+             "invalid runtime pulse setting stops and disarms AUTO");
+    }
+    in=good();
+    {
+        Controller c;
+        in.pauseMs=100;
+        test(c.arm(in), "arm for hardware cooldown wait test");
+        test(c.step(in).direction==-1, "first pulse before cooldown test");
+        in.now+=350;
+        in.pressureBar=2.6f;
+        in.driverCanPulse=false;
+        const auto waiting=c.step(in);
+        test(waiting.direction==0 && !waiting.stopMotor && c.armed(),
+             "driver cooldown wait does not disarm AUTO");
+        test(std::strcmp(c.status(), "OCZEKUJE NA STEROWNIK")==0,
+             "driver cooldown has explicit waiting status");
+        in.now+=10;
+        in.driverCanPulse=true;
+        test(c.step(in).direction==-1 && c.armed(),
+             "AUTO resumes when hardware dead-time expires");
+    }
+    in=good();
+    {
         Controller c;c.arm(in);c.step(in);
         in.connected=false;in.now+=50;
         test(c.step(in).stopMotor && !c.armed(),"AOG loss trips");
@@ -56,13 +103,25 @@ int main() {
     }
     in=good();
     {
-        Controller c;c.arm(in);
-        in.sectionsOpen=false;
-        in.targetBar=std::numeric_limits<float>::quiet_NaN();
+        Controller c;
+        test(c.arm(in), "arm before pressure-trip test");
+        c.step(in);
+        in.pressureTrip=true;
+        in.now+=50;
+        const auto trip=c.step(in);
+        test(trip.stopMotor && trip.direction==0 && !c.armed(),
+             "latched raw-pressure trip stops motor and disarms");
+    }
+    in=good();
+    {
+        Controller c;c.arm(in);c.step(in);
+        in.sectionsOpen=false;in.now+=50;
         auto a=c.step(in);
         test(a.stopMotor && a.direction==0 && c.armed(),"headland: stop without disarming");
-        in.sectionsOpen=true;in.targetBar=3.0f;in.now+=1000;
-        test(c.step(in).direction==-1,"resume when sections reopen");
+        in.sectionsOpen=true;in.now+=100;
+        test(c.step(in).direction==0,"headland resume respects pulse dead-time");
+        in.now+=1000;
+        test(c.step(in).direction==-1,"resume after headland dead-time");
     }
     in=good();in.pressureBar=3.5f;
     {

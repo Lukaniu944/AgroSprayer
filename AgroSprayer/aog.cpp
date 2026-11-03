@@ -1,9 +1,11 @@
 #include "aog.h"
 #include "config.h"
 #include "board_config.h"
+#include "aog_pgn_core.h"
 #include "sprayer_state.h"
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <array>
 
 static WiFiUDP udp;
 static IPAddress broadcastIp(255,255,255,255);
@@ -15,17 +17,43 @@ static bool resetSent = false;
 static uint32_t resetStartMs = 0;
 static constexpr uint32_t MODE_RESET_MS = 500;
 
+static_assert(SECTION_COUNT > 0 && SECTION_COUNT <= 8,
+              "PGN234 section mask supports 1..8 sections in the low group");
+
 static uint8_t sectionMask() {
     uint8_t m = 0;
     for (int i=0;i<SECTION_COUNT;i++) if (gState.sections[i]) m |= 1u << i;
     return m;
 }
 
-static uint8_t checksum(const uint8_t *p, int a, int b) {
-    uint16_t s=0;
-    for (int i=a;i<=b;i++) s += p[i];
-    return (uint8_t)s;
-}
+constexpr auto kAutoSwitchPacket =
+    agopgn::build_switch_packet<SECTION_COUNT>(true, false, 0x3F);
+static_assert(kAutoSwitchPacket[5] == 0x05 &&
+              kAutoSwitchPacket[6] == 0x3F &&
+              kAutoSwitchPacket[8] == SECTION_COUNT &&
+              kAutoSwitchPacket[9] == 0 && kAutoSwitchPacket[10] == 0,
+              "AUTO must delegate all six sections to AgOpenGPS");
+static_assert(kAutoSwitchPacket[13] == 0xB3,
+              "PGN234 AUTO packet checksum regression");
+
+constexpr auto kManualSwitchPacket =
+    agopgn::build_switch_packet<SECTION_COUNT>(false, false, 0x09);
+static_assert(kManualSwitchPacket[5] == 0x06 &&
+              kManualSwitchPacket[6] == 0 &&
+              kManualSwitchPacket[9] == 0x09 &&
+              kManualSwitchPacket[10] == 0x36,
+              "MANUAL must encode requested ON bits and complementary OFF bits");
+static_assert(kManualSwitchPacket[13] == 0xB4,
+              "PGN234 MANUAL packet checksum regression");
+
+constexpr auto kModeResetPacket =
+    agopgn::build_switch_packet<SECTION_COUNT>(true, true, 0x3F);
+static_assert(kModeResetPacket[5] == 0x06 &&
+              kModeResetPacket[6] == 0 &&
+              kModeResetPacket[9] == 0 &&
+              kModeResetPacket[10] == 0x3F &&
+              kModeResetPacket[13] == 0xB4,
+              "AUTO handover reset must send all-sections-OFF first");
 
 static void updateBroadcast() {
     IPAddress ip = WiFi.localIP();
@@ -52,24 +80,10 @@ static void sendSwitch() {
     if (bench_test_active()) return;
     if (WiFi.status() != WL_CONNECTED) return;
 
-    uint8_t valid = (1u << SECTION_COUNT) - 1u;
-    const bool automatic = gState.autoMode && !modeReset;
-    uint8_t autoMask = automatic ? valid : 0;
-    uint8_t onMask = modeReset || automatic ? 0 : sectionMask();
-    uint8_t offMask = modeReset ? valid : automatic ? 0 : ((~onMask) & valid);
-    // PGN234 Main bit2 selects maintained switch states (not edge buttons).
-    // bit0 enables the AUTO master; bit1 disables it for manual control.
-    const uint8_t main = 0x04 | (automatic ? 0x01 : 0x02);
-
-    uint8_t p[14] = {
-        0x80,0x81,0x77,0xEA,0x08,
-        main, autoMask,0x00, SECTION_COUNT,
-        onMask,offMask,0x00,0x00,0x00
-    };
-    p[13] = checksum(p,2,12);
+    const auto p = agopgn::build_switch_packet<SECTION_COUNT>(gState.autoMode, modeReset, sectionMask());
 
     if (udp.beginPacket(broadcastIp, AOG_TX_PORT) != 1) return;
-    if (udp.write(p,sizeof(p)) != sizeof(p)) { udp.endPacket(); return; }
+    if (udp.write(p.data(), p.size()) != p.size()) { udp.endPacket(); return; }
     if (udp.endPacket() != 1) return;
     gState.txPackets++;
     if (modeReset && !resetSent) {
@@ -79,17 +93,17 @@ static void sendSwitch() {
 }
 
 static void parse(uint8_t *p, int n) {
-    if (n < 12 || p[0] != 0x80 || p[1] != 0x81) return;
+    // Ignore truncated, oversized, wrong-source and checksum-invalid datagrams:
+    // they must not refresh the AOG watchdog or alter section states.
+    if (!agopgn::valid_machine_data_pgn239(p, static_cast<std::size_t>(n))) return;
 
-    if (p[2] == 0x7F && p[3] == 0xEF) {
-        gState.speedX10 = p[6];
-        if (gState.autoMode && !modeReset) {
-            uint8_t mask = p[11];
-            for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
-        }
-        gState.lastAogMs = millis();
-        gState.rxPackets++;
+    gState.speedX10 = p[6];
+    if (gState.autoMode && !modeReset) {
+        uint8_t mask = p[11];
+        for (int i=0;i<SECTION_COUNT;i++) gState.sections[i] = (mask & (1u << i)) != 0;
     }
+    gState.lastAogMs = millis();
+    gState.rxPackets++;
 }
 
 void aog_update() {
@@ -124,10 +138,14 @@ void aog_update() {
     }
 
     uint32_t now = millis();
-    // Never show AOG as connected during the first 1.5 s after boot:
-    // require at least one real PGN239 packet and a fresh timestamp.
+    // Require a real, fresh PGN239 packet before exposing cached machine data.
     gState.aogOk = gState.udpOk && gState.rxPackets > 0 &&
-                   (uint32_t)(now - gState.lastAogMs) <= AOG_TIMEOUT_MS;
+                   agopgn::machine_data_is_fresh(now, gState.lastAogMs, AOG_TIMEOUT_MS);
+
+    // Do not keep displaying/using stale speed or section states after AOG/Wi-Fi
+    // data expires. This clears local state only; it is not a hardware shutoff.
+    agopgn::clear_stale_machine_state(gState.aogOk, gState.speedX10,
+                                      gState.sections, SECTION_COUNT);
 
     if (bench_test_active()) {
         pendingTx = false;

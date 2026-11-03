@@ -1,5 +1,6 @@
 #include "auto_regulator.h"
 #include "pressure_control_core.h"
+#include "aog_pgn_core.h"
 #include "nozzle_model.h"
 #include "pressure_sensor.h"
 #include "sprayer_state.h"
@@ -22,9 +23,11 @@ agroreg::Input snapshot() {
     s.autoMode = gState.autoMode;
     s.connected = gState.wifiOk && gState.udpOk && gState.aogOk &&
                   gState.rxPackets != 0 &&
-                  (uint32_t)(s.now-gState.lastAogMs) <= AOG_TIMEOUT_MS;
+                  agopgn::machine_data_is_fresh(s.now, gState.lastAogMs, AOG_TIMEOUT_MS);
     s.sensorValid = pressure_sensor_valid();
+    s.pressureTrip = pressure_sensor_overpressure();
     s.driverReady = valve_test_ready();
+    s.driverCanPulse = valve_auto_pulse_ready();
     s.benchMode = bench_test_active();
     // Manual diagnostic UNLOCK is also an interlock against automatic arming.
     s.motorMoving = valve_test_direction() != 0 || valve_test_armed();
@@ -61,15 +64,27 @@ void auto_regulator_update() {
             controller.disarm();
             valve_test_stop();
         } else {
-            controller.arm(snapshot());
+            // Capture the permit generation before arming. STOP invalidates it
+            // under the valve driver's mux, even if STOP races this function.
+            const uint32_t armGeneration = valve_auto_generation();
+            if (!requestStop.load(std::memory_order_acquire) &&
+                controller.arm(snapshot())) {
+                if (!valve_auto_arm(armGeneration)) controller.disarm();
+            }
         }
     }
     const agroreg::Input s=snapshot();
     const agroreg::Action a=controller.step(s);
-    if (a.stopMotor) valve_test_stop();
+    if (a.stopMotor) {
+        // The controller stays armed during headland closure. Pause motion only;
+        // a real STOP/fault disarms it and invalidates the AUTO permit.
+        if (controller.armed()) valve_auto_pause();
+        else valve_test_stop();
+    }
     if (a.direction) {
         if (!valve_auto_pulse(a.direction,a.pulseMs)) {
-            controller.driverFailed();
+            if (requestStop.load(std::memory_order_acquire)) controller.disarm();
+            else controller.driverFailed();
             valve_test_stop();
         }
     }

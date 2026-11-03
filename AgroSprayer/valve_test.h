@@ -3,14 +3,25 @@
 bool valve_test_begin();
 bool valve_test_ready();
 void valve_test_arm();
-void valve_test_stop(); // Stops and disarms.
+void valve_test_stop(); // Stops, disarms manual test and invalidates pending AUTO permits.
 bool valve_test_pulse(int direction); // +1 or -1; never queues or extends a pulse.
 bool valve_test_armed();
 int valve_test_direction();
 
 // Direct operator command: one 250 ms pulse, no queue and no extension.
 bool valve_manual_pulse(int direction); // +1=open, -1=close.
-// Automatic regulation: single pulse <=250ms; mapping follows calibrated A/B.
+
+// AUTO arming uses a generation token: any STOP between token capture and
+// valve_auto_arm() invalidates that attempt. The token/arm calls are serialized
+// with valve_test_stop() by the valve driver's critical section.
+uint32_t valve_auto_generation();
+bool valve_auto_arm(uint32_t expectedGeneration);
+// Read-only preflight for AUTO: includes the driver's 100 ms post-stop dead-time.
+bool valve_auto_pulse_ready();
+// Stops current motion but preserves the AUTO permit for temporary headland pauses.
+void valve_auto_pause();
+
+// Automatic regulation: single pulse <=250ms; requires a current AUTO permit.
 bool valve_auto_pulse(int logicalDirection, uint32_t durationMs);
 int valve_open_direction();
 bool valve_toggle_open_direction(); // Stops the motor, saves the mapping.
