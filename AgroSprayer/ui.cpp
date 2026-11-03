@@ -1522,7 +1522,7 @@ static void quick_accept_cb(lv_event_t *)
         const float minimum=i==0?.1f:i==1?.8f:1;
         const float maximum=i==0?5:i==1?1.6f:40;
         if(end==text||*end||!std::isfinite(value)||value<minimum||value>maximum||(i>=2&&value!=(int)value)) {
-            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min (przy 3 bar)":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
+            set_label_text_if_changed(quickError,i==0?"Zakres: 0.10 - 5.00 L/min wody przy 3 bar":i==1?"Zakres gestosci: 0.80 - 1.60 kg/L":"Liczba koncowek: 1 - 40, bez ulamkow");return;
         }
         if(i==0)nozzleDraft.waterQ3[nozzleDraft.nozzle]=value;
         else if(i==1){nozzleDraft.density=value;nozzleDraft.liquid=4;}
@@ -1556,7 +1556,7 @@ static void quick_key_cb(lv_event_t *e)
     }
     set_label_text_if_changed(quickText,quickEntry[0] ? quickEntry : quickInitial);
     set_text_color_if_changed(quickText,quickEntry[0] ? C_TEXT() : C_MUTED(),0);
-    set_label_text_if_changed(quickError,"Wpisz wartosc i zatwierdz przyciskiem OK.");
+    set_label_text_if_changed(quickError,quickField==100 ? "Podaj wydatek WODY; korekta RSM stosowana jest automatycznie." : "Wpisz wartosc i zatwierdz przyciskiem OK.");
 }
 static void quick_open_input_cb(lv_event_t *e)
 {
@@ -1565,7 +1565,7 @@ static void quick_open_input_cb(lv_event_t *e)
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
-    home_text(quickModal,quickField==100 ? "WYDATEK JEDNEJ KONCOWKI PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
+    home_text(quickModal,quickField==100 ? "KALIBRACJA WODY - 1 KONCOWKA PRZY 3 bar" : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
     quickEntry[0]=0;
     if(quickField>=100)snprintf(quickInitial,sizeof(quickInitial),"%.2f",quickField==100?nozzleDraft.waterQ3[nozzleDraft.nozzle]:quickField==101?nozzleDraft.density:(float)nozzleDraft.counts[quickField-102]);
