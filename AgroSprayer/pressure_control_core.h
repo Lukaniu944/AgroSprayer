@@ -5,6 +5,15 @@
 #include <cstdint>
 
 namespace agroreg {
+constexpr uint32_t MIN_PULSE_MS = 50;
+constexpr uint32_t MAX_PULSE_MS = 250;
+constexpr uint32_t MIN_PAUSE_MS = 100;
+constexpr uint32_t MAX_PAUSE_MS = 3000;
+constexpr uint32_t MIN_TOLERANCE_PERCENT = 1;
+constexpr uint32_t MAX_TOLERANCE_PERCENT = 20;
+constexpr bool valid_settings(uint32_t pulseMs, uint32_t pauseMs, uint32_t tolerancePercent) {
+ return pulseMs >= MIN_PULSE_MS && pulseMs <= MAX_PULSE_MS && pauseMs >= MIN_PAUSE_MS && pauseMs <= MAX_PAUSE_MS && tolerancePercent >= MIN_TOLERANCE_PERCENT && tolerancePercent <= MAX_TOLERANCE_PERCENT;
+}
 struct Input {
     uint32_t now = 0;
     bool autoMode = false;
@@ -51,7 +60,7 @@ class Controller {
                in.targetBar <= 4.8f;
     }
     bool valid(const Input &in) const {
-        return validBasic(in) && validTarget(in);
+        return validBasic(in) && validTarget(in) && valid_settings(in.pulseMs, in.pauseMs, in.tolerancePercent);
     }
 public:
     bool armed() const { return armed_; }
@@ -91,6 +100,11 @@ public:
         lastTick_ = in.now;
         if (!validBasic(in)) {
             fault("STOP: AOG / CZUJNIK / TRYB / CISNIENIE");
+            out.stopMotor = true;
+            return out;
+        }
+        if (!valid_settings(in.pulseMs, in.pauseMs, in.tolerancePercent)) {
+            fault("STOP: USTAWIENIA REGULATORA");
             out.stopMotor = true;
             return out;
         }

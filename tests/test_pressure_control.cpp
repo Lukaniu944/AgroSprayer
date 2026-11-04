@@ -302,6 +302,22 @@ int main() {
     {Controller c;test(!c.arm(in),"no speed cannot arm");}
     in=good();in.targetBar=5.1f;
     {Controller c;test(!c.arm(in),"unachievable target cannot arm");}
+    in=good();in.targetBar=4.8f;
+    {Controller c;test(c.arm(in),"4.8 bar target is accepted");}
+    in=good();in.targetBar=4.81f;
+    {Controller c;test(!c.arm(in),"target above 4.8 bar is rejected");}
+    in=good();in.pulseMs=49;
+    {Controller c;test(!c.arm(in),"pulse below 50 ms is rejected");}
+    in=good();in.pulseMs=251;
+    {Controller c;test(!c.arm(in),"pulse above 250 ms is rejected");}
+    in=good();in.pauseMs=99;
+    {Controller c;test(!c.arm(in),"pause below 100 ms is rejected");}
+    in=good();in.pauseMs=3001;
+    {Controller c;test(!c.arm(in),"pause above 3000 ms is rejected");}
+    in=good();in.tolerancePercent=0;
+    {Controller c;test(!c.arm(in),"zero tolerance is rejected");}
+    in=good();in.tolerancePercent=21;
+    {Controller c;test(!c.arm(in),"tolerance above 20 percent is rejected");}
     in=good();
     {
         Controller c;c.arm(in);c.step(in);
