@@ -5,6 +5,13 @@ namespace agronozzle {
 constexpr float kRsmTableQ3 = 1.54f;
 constexpr float kV2RsmReference = 1.78f;
 constexpr float kLegacyRsmReference = 1.54f;
+// Maximum automatic target pressure: the regulator itself trips above 4.8 bar.
+// Keep the nozzle table's 6-bar RSM data for measured-flow estimation only.
+constexpr float kWaterMaxTargetPressureBar = 4.0f;
+constexpr float kRsmMaxTargetPressureBar = 4.8f;
+constexpr float maxTargetPressureBar(int nozzle) {
+    return nozzle == 1 ? kRsmMaxTargetPressureBar : kWaterMaxTargetPressureBar;
+}
 inline float migrateLegacyRsmQ3(float legacyValue) {
     return legacyValue * (kRsmTableQ3 / kLegacyRsmReference);
 }

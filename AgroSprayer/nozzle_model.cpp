@@ -77,7 +77,9 @@ float nozzle_flow(float bar,const NozzleSettings &s){
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(total)||total<=0||count<=0)return NAN;
-    const float lowBar=2.0f,highBar=s.nozzle?6.0f:4.0f;
+    // The 04RSM flow table extends to 6 bar, but AUTO target pressure is
+    // limited to 4.8 bar by the regulator safety interlock.
+    const float lowBar=2.0f,highBar=agronozzle::maxTargetPressureBar(s.nozzle);
     float low=lowBar,high=highBar,q=total/count;
     const float minFlow=nozzle_flow(low,s),maxFlow=nozzle_flow(high,s);
     if(!std::isfinite(q)||!std::isfinite(minFlow)||!std::isfinite(maxFlow))return NAN;

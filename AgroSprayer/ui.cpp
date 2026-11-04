@@ -2564,7 +2564,7 @@ void ui_update()
 
     set_label_text_if_changed(lblTankPct,tankReading.configured ? (tankReading.saveOk?"Wyliczone":"Blad zapisu") : "Dotknij: ustaw");
     const float wantedPressure=nozzle_target_bar();
-    if(std::isfinite(wantedPressure)&&wantedPressure<=5.5f)snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
+    if(std::isfinite(wantedPressure)&&wantedPressure<=4.8f)snprintf(buf,sizeof(buf),"%s\nCel cisnienia: %.2f bar",nozzle_status(),wantedPressure);
     else snprintf(buf,sizeof(buf),"%s\n%s",nozzle_status(),targetFlowX10()>0?"Cel poza zakresem cisnienia":"Cel cisnienia: --");
     set_label_text_if_changed(nozzleHomeInfo,buf);
     // Detail panels above keep updating; hidden home widgets wait until return.

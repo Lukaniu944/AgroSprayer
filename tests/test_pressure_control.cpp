@@ -28,6 +28,10 @@ int main() {
     // estimated output when migrating stored settings to V3.
     {
         auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+        test(eq(agronozzle::maxTargetPressureBar(0),4.0f),
+             "11003 target pressure stays within its 4-bar table");
+        test(eq(agronozzle::maxTargetPressureBar(1),4.8f),
+             "04RSM AUTO target matches the 4.8-bar regulator limit");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.0f),1.54f),
              "04RSM default Q3 matches 3-bar table");
         test(eq(agronozzle::calibratedWaterFlow(1.54f,2.0f,1,1.0f),2.0f),
