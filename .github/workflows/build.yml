@@ -10,17 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Native C++17 regulator tests (no ESP32 hardware)
+      - name: Native C++17 regulator and sensor tests (no ESP32 hardware)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_control.cpp -o /tmp/agrosprayer-pressure-test
           /tmp/agrosprayer-pressure-test
+          g++ -std=c++17 -Wall -Wextra -Werror -pedantic -IAgroSprayer tests/test_pressure_sensor.cpp -o /tmp/agrosprayer-pressure-sensor-test
+          /tmp/agrosprayer-pressure-sensor-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-test
           /tmp/agrosprayer-section-volume-test
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=undefined -fno-sanitize-recover=all tests/test_section_volume.cpp -o /tmp/agrosprayer-section-volume-ubsan
           /tmp/agrosprayer-section-volume-ubsan
 
   esp32-build:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request'
+    needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
