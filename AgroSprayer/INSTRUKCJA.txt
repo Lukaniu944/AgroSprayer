@@ -25,7 +25,7 @@ Przeplywomierz nie jest inicjalizowany ani odczytywany w petli; jego stare pliki
 
 STEROWANIE
 Ta aktualizacja zachowuje profile, edycje, obliczenia i cel cisnienia. Dodano osobno wlaczana regulacje cisnienia zaworem 12 V (L298N): Ustawienia -> CISNIENIE / REGULATOR -> AUTO REG: WLACZ. Bez nacisniecia tego przycisku i po kazdym restarcie silnik pozostaje w trybie dotychczasowym. AUTO sekcji AgOpenGPS NIE uruchamia regulatora.
-Regulator wymaga aktualnych danych AOG, AUTO sekcji, minimum 0.5 bar na czujniku, otwartych sekcji, predkosci, prawidlowego celu 2.0-4.8 bar i sprawdzonego kierunku silnika. Uzywa impulsow maks. 250 ms i przerw po ruchu. Przy cisnieniu >= 5 bar, utracie AOG/czujnika, braku reakcji lub odwrotnej reakcji przechodzi w STOP i wymaga ponownego wlaczenia. Przy zamknietych sekcjach nie porusza zaworem.
+Regulator wymaga aktualnych danych AOG, AUTO sekcji, minimum 0.5 bar na czujniku, otwartych sekcji, predkosci, prawidlowego celu 2.0-4.8 bar i sprawdzonego kierunku silnika. Uzywa impulsow maks. 250 ms i przerw po ruchu. Niezalezny watchdog sterownika zaworu odcina naped przy utracie/nieprawidlowym sygnale czujnika lub surowym cisnieniu >= 4.9 bar. Trip nadcisnienia jest zatrzaskowy do restartu; po pozostalych bledach regulator wymaga ponownego wlaczenia. Przy zamknietych sekcjach nie porusza zaworem.
 Przed wlaczeniem sprawdz recznie przy odlaczonym oprysku kierunek A/B: otwarcie obejscia MUSI zmniejszac cisnienie, zamkniecie obejscia MUSI je podnosic. Sprawdz dzialanie STOP i krancowek oraz zapewnij mozliwosc fizycznego odciecia zasilania silnika. Nie uzywaj regulacji na polu bez testu hydraulicznego i kalibracji rozpylaczy. Symulacja w panelu TEST NA BIURKU nie napedza silnika.
 
 WERYFIKACJA

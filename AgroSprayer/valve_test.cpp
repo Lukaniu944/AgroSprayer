@@ -1,25 +1,44 @@
 #include "valve_test.h"
+#include "valve_auto_gate_core.h"
 #include "board_config.h"
-#include "valve_ui_interlock.h"
+#include "pressure_sensor.h"
 #include <Preferences.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
+static valvegate::AutoPulsePermit autoPulsePermit;
 static bool ready = false, armed = false;
 static int direction = 0;
 static uint32_t started = 0, stopped = 0, pulseDuration = VALVE_TEST_PULSE_MS;
 static int openDirection = 1;
-static uint32_t autoStopGeneration = 0; // Protected by mux.
 static void outputsOff() {
     gpio_set_level((gpio_num_t)VALVE_IN1_PIN, 0);
     gpio_set_level((gpio_num_t)VALVE_IN2_PIN, 0);
 }
 static void watchdogTask(void *) {
+    bool pressureFaultActive = false;
     for (;;) {
+        const bool pressureFault =
+            !pressure_sensor_valid() || pressure_sensor_overpressure();
         portENTER_CRITICAL(&mux);
-        if (direction && (uint32_t)(millis() - started) >= pulseDuration) {
-            outputsOff(); direction = 0; stopped = millis();
+        if (pressureFault) {
+            // Invalidate pending AUTO permits once per fault transition.
+            if (!pressureFaultActive) autoPulsePermit.stop();
+            pressureFaultActive = true;
+            // A pressure fault also disarms an idle manual test.
+            if (direction) outputsOff();
+            direction = 0;
+            armed = false;
+            stopped = millis();
+        } else {
+            pressureFaultActive = false;
+            if (direction &&
+                (uint32_t)(millis() - started) >= pulseDuration) {
+                outputsOff();
+                direction = 0;
+                stopped = millis();
+            }
         }
         portEXIT_CRITICAL(&mux);
         vTaskDelay(pdMS_TO_TICKS(10));
@@ -33,6 +52,11 @@ bool valve_test_begin() {
     gpio_set_direction((gpio_num_t)VALVE_IN1_PIN, GPIO_MODE_OUTPUT);
     gpio_set_direction((gpio_num_t)VALVE_IN2_PIN, GPIO_MODE_OUTPUT);
     outputsOff();
+    portENTER_CRITICAL(&mux);
+    autoPulsePermit.stop();
+    armed = false;
+    direction = 0;
+    portEXIT_CRITICAL(&mux);
     stopped = millis();
     Preferences prefs;
     if(prefs.begin("agrovalve",true)) {
@@ -45,22 +69,58 @@ bool valve_test_begin() {
 bool valve_test_ready() { return ready; }
 void valve_test_arm() {
     portENTER_CRITICAL(&mux);
-    if (ready) armed = true;
+    if (ready && pressure_sensor_valid() && !pressure_sensor_overpressure()) {
+        autoPulsePermit.stop();
+        armed = true;
+    }
     portEXIT_CRITICAL(&mux);
 }
 void valve_test_stop() {
     portENTER_CRITICAL(&mux);
+    autoPulsePermit.stop();
     outputsOff(); direction = 0; armed = false; stopped = millis();
-    ++autoStopGeneration;
     portEXIT_CRITICAL(&mux);
 }
-static bool startPulse(int requested, uint32_t duration, bool requireArm,
-                       bool autoPulse = false, uint32_t generation = 0) {
+uint32_t valve_auto_generation() {
+    portENTER_CRITICAL(&mux);
+    const uint32_t value = autoPulsePermit.generation();
+    portEXIT_CRITICAL(&mux);
+    return value;
+}
+bool valve_auto_arm(uint32_t expectedGeneration) {
+    portENTER_CRITICAL(&mux);
+    const bool pressureSafe = pressure_sensor_valid() && !pressure_sensor_overpressure();
+    const bool allowed = ready && pressureSafe && !direction && !armed &&
+                         autoPulsePermit.arm(expectedGeneration);
+    portEXIT_CRITICAL(&mux);
+    return allowed;
+}
+bool valve_auto_pulse_ready() {
     portENTER_CRITICAL(&mux);
     const uint32_t now = millis();
-    const bool allowed = ready && (!requireArm || armed) && !direction &&
-        (!autoPulse || agrovalve::autoPulseStillValid(generation, autoStopGeneration)) &&
-        (requested == 1 || requested == -1) &&
+    const bool pressureSafe = pressure_sensor_valid() && !pressure_sensor_overpressure();
+    const bool allowed = ready && pressureSafe && !direction &&
+        autoPulsePermit.allows() && (uint32_t)(now - stopped) >= 100;
+    portEXIT_CRITICAL(&mux);
+    return allowed;
+}
+void valve_auto_pause() {
+    // A headland pause is not STOP: preserve the valid AUTO permit.
+    portENTER_CRITICAL(&mux);
+    outputsOff();
+    direction = 0;
+    stopped = millis();
+    portEXIT_CRITICAL(&mux);
+}
+static bool startPulse(int requested, uint32_t duration,
+                       bool requireArm, bool requireAutoArm) {
+    portENTER_CRITICAL(&mux);
+    const uint32_t now = millis();
+    const bool pressureSafe = pressure_sensor_valid() && !pressure_sensor_overpressure();
+    const bool allowed = ready && pressureSafe &&
+        (!requireArm || armed) &&
+        (!requireAutoArm || autoPulsePermit.allows()) &&
+        !direction && (requested == 1 || requested == -1) &&
         (uint32_t)(now - stopped) >= 100;
     if (allowed) {
         outputsOff();
@@ -70,20 +130,18 @@ static bool startPulse(int requested, uint32_t duration, bool requireArm,
     portEXIT_CRITICAL(&mux);
     return allowed;
 }
-bool valve_test_pulse(int requested) { return startPulse(requested,VALVE_TEST_PULSE_MS,true); }
+bool valve_test_pulse(int requested) {
+    return startPulse(requested, VALVE_TEST_PULSE_MS, true, false);
+}
 bool valve_manual_pulse(int requested) {
     if(requested!=1 && requested!=-1)return false;
-    return startPulse(requested*valve_open_direction(),250,false);
+    return startPulse(requested*valve_open_direction(),250,false,false);
 }
-uint32_t valve_auto_generation() {
-    portENTER_CRITICAL(&mux);
-    const uint32_t value = autoStopGeneration;
-    portEXIT_CRITICAL(&mux);
-    return value;
-}
-bool valve_auto_pulse(int logicalDirection, uint32_t durationMs, uint32_t generation) {
-    if ((logicalDirection != 1 && logicalDirection != -1) || durationMs < 50 || durationMs > 250) return false;
-    return startPulse(logicalDirection * valve_open_direction(),durationMs,false,true,generation);
+bool valve_auto_pulse(int logicalDirection, uint32_t durationMs) {
+    if ((logicalDirection != 1 && logicalDirection != -1) ||
+        durationMs < 50 || durationMs > 250) return false;
+    return startPulse(logicalDirection * valve_open_direction(),
+                      durationMs, false, true);
 }
 int valve_open_direction() {
     portENTER_CRITICAL(&mux);const int value=openDirection;portEXIT_CRITICAL(&mux);return value;
