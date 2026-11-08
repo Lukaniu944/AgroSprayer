@@ -24,7 +24,8 @@ const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c33||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.magic!=0x4e5a4c34||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
+    if(s.nozzle==1&&(s.liquid==0||s.liquid==4))return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
     for(int k=0;k<2;k++){const float q=s.waterQ3[k];if(!std::isfinite(q)||q<(k==1?0.08f:0.1f)||q>5)return false;}
     return true;
@@ -34,15 +35,18 @@ void nozzle_begin(){
     if(p.begin("agronozzle",true)){
         NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
         if(n==sizeof(s)){
-            // The 04RSM table is 1.54 l/min at 3 bar (1.78 at 4 bar).
-            // V1 already used the 1.54 reference. V2 used 1.78; rescale
-            // its saved Q3 to V3 without changing estimated flow or dose.
+            // V1/V2/V3 used the old water-reference model for 04RSM.
+            // Preserve custom calibrations, but keep the table default at 1.54
+            // l/min and migrate it to the direct RSM reference used by V4.
             if(s.magic==0x4e5a4c31){
                 s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
-                s.magic=0x4e5a4c33;
             } else if(s.magic==0x4e5a4c32){
                 s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
-                s.magic=0x4e5a4c33;
+            }
+            if(s.magic==0x4e5a4c31||s.magic==0x4e5a4c32||s.magic==0x4e5a4c33){
+                if(s.nozzle==1&&s.liquid==0){s.liquid=1;s.density=1.28f;}
+                s.waterQ3[1]=agronozzle::migrateRsmQ3ToDirect(s.waterQ3[1],s.density);
+                s.magic=0x4e5a4c34;
             }
             if(validSettings(s))ns=s;
         }
@@ -62,18 +66,13 @@ bool nozzle_save(const NozzleSettings &s){
     volumeIntegrator.sample(millis(),liveSectionMask(),0.0f,false);
     reading=false;return true;
 }
-// User-supplied water tables. Interpolate squared flow vs pressure, then
-// apply per-profile water calibration and density exactly once.
+// Separate 11003 water and 04RSM RSM tables; no second RSM density correction.
 float nozzle_flow(float bar,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(bar)||bar<0)return NAN;
-    if(bar<=0.1f)return 0;
-    const float ps[2][5]={{2,2.5f,3,3.5f,4},{2,3,4,5,6}};
-    const float qs[2][5]={{.96f,1.08f,1.18f,1.27f,1.39f},{1.26f,1.54f,1.78f,1.99f,2.18f}};
     const int k=s.nozzle;
-    if(bar<ps[k][0]||bar>ps[k][4])return NAN;
-    float q=qs[k][4];
-    for(int i=1;i<5;i++)if(bar<=ps[k][i]){float t=(bar-ps[k][i-1])/(ps[k][i]-ps[k][i-1]);q=sqrtf(qs[k][i-1]*qs[k][i-1]+t*(qs[k][i]*qs[k][i]-qs[k][i-1]*qs[k][i-1]));break;}
-    return agronozzle::calibratedWaterFlow(q,s.waterQ3[k],k,s.density);
+    const float tableQ=agronozzle::nozzleTableFlow(bar,k);
+    if(!std::isfinite(tableQ))return NAN;
+    return agronozzle::calibratedNozzleFlow(tableQ,s.waterQ3[k],k,s.density);
 }
 float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     if(!validSettings(s)||!std::isfinite(total)||total<=0||count<=0)return NAN;
