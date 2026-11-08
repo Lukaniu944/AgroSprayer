@@ -3,6 +3,7 @@
 #include "../AgroSprayer/aog_link_guard.h"
 #include "../AgroSprayer/nozzle_calibration_core.h"
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -23,41 +24,38 @@ int main() {
         if(!cond) { std::cerr << "FAIL: " << name << "\n"; std::abort(); }
         ++checks;
     };
-    // 04RSM table: 3 bar = 1.54 l/min; 4 bar = 1.78 l/min.
-    // Q3 is the measured water output at 3 bar. Preserve V1/V2
-    // estimated output when migrating stored settings to V3.
+    // 11003 uses the supplied water table; 04RSM uses the supplied RSM table directly.
     {
-        auto eq=[](float a,float b){return std::fabs(a-b)<1e-5f;};
+        auto eq=[](float a,float b){return std::isfinite(a)&&std::fabs(a-b)<1e-5f;};
         test(eq(agronozzle::maxTargetPressureBar(0),4.0f),
-             "11003 target pressure stays within its 4-bar table");
+             "11003 AUTO target stays within its 4-bar table");
         test(eq(agronozzle::maxTargetPressureBar(1),4.8f),
-             "04RSM AUTO target matches the 4.8-bar regulator limit");
-        test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.0f),1.54f),
-             "04RSM default Q3 matches 3-bar table");
-        test(eq(agronozzle::calibratedWaterFlow(1.54f,2.0f,1,1.0f),2.0f),
-             "04RSM measured 3-bar water Q3");
-        test(eq(agronozzle::calibratedWaterFlow(
-                 1.54f,agronozzle::migrateLegacyRsmQ3(1.54f),1,1.0f),1.54f),
-             "V1 Q3 migration preserves estimated output");
-        test(eq(agronozzle::calibratedWaterFlow(
-                 1.54f,agronozzle::migrateV2RsmQ3(1.78f),1,1.0f),1.54f),
-             "V2 default migration preserves estimated output");
-        test(eq(agronozzle::calibratedWaterFlow(
-                 1.78f,agronozzle::migrateV2RsmQ3(2.0f),1,1.0f),2.0f),
-             "V2 user calibration preserves 4-bar estimate");
-        test(eq(agronozzle::calibratedWaterFlow(1.18f,1.18f,0,1.0f),1.18f),
-             "11003 Q3 unchanged");
-        test(eq(agronozzle::calibratedWaterFlow(1.54f,1.54f,1,1.32f),
-                1.54f/std::sqrt(1.32f)),
-             "RSM density correction applied once");
-        for(float q : {0.1f,0.5f,1.78f,2.0f,5.0f}) {
-            for(float density : {1.0f,1.32f}) {
-                const float oldFlow=1.54f*(q/1.78f)/std::sqrt(density);
-                const float newFlow=agronozzle::calibratedWaterFlow(
-                    1.54f,agronozzle::migrateV2RsmQ3(q),1,density);
-                test(eq(oldFlow,newFlow),"V2 migration preserves water/RSM flow");
-            }
-        }
+             "04RSM AUTO target stays below the 4.9-bar trip");
+        test(eq(agronozzle::nozzleTableFlow(3.0f,0),1.18f),
+             "11003 water table gives 1.18 l/min at 3 bar");
+        test(eq(agronozzle::nozzleTableFlow(3.0f,1),1.54f),
+             "04RSM RSM table gives 1.54 l/min at 3 bar");
+        test(eq(agronozzle::calibratedNozzleFlow(1.54f,1.54f,1,1.32f),1.54f),
+             "04RSM RSM table is not density-corrected a second time");
+        test(eq(agronozzle::calibratedNozzleFlow(1.18f,1.18f,0,1.28f),
+                1.18f/std::sqrt(1.28f)),
+             "11003 water table applies RSM 28 density correction once");
+        test(eq(agronozzle::calibratedNozzleFlow(1.18f,1.18f,0,1.32f),
+                1.18f/std::sqrt(1.32f)),
+             "11003 water table applies RSM 32 density correction once");
+        test(eq(agronozzle::migrateLegacyRsmQ3(1.54f),1.54f),
+             "V1 RSM reference migration");
+        test(eq(agronozzle::migrateV2RsmQ3(1.78f),1.54f),
+             "V2 default reference migration");
+        test(eq(agronozzle::migrateRsmQ3ToDirect(1.54f,1.28f),1.54f),
+             "default V3 RSM table reference remains exact");
+        const float oldCustom=2.0f;
+        const float converted=agronozzle::migrateRsmQ3ToDirect(oldCustom,1.28f);
+        test(eq(converted,oldCustom/std::sqrt(1.28f)),
+             "custom legacy RSM calibration converts from water to direct RSM Q3");
+        test(eq(agronozzle::calibratedNozzleFlow(1.54f,converted,1,1.28f),
+                oldCustom/std::sqrt(1.28f)),
+             "legacy custom calibration preserves estimated RSM output");
     }
     // PGN239 packet validation: corrupted packets must never affect sections.
     {
