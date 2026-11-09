@@ -1,6 +1,7 @@
 #pragma once
 // Pure C++ nozzle tables and calibration helpers, independent of ESP32/LVGL.
 #include <cmath>
+#include <cstddef>
 #include <limits>
 
 namespace agronozzle {
@@ -12,6 +13,23 @@ constexpr float kRsmMaxTargetPressureBar = 4.8f;
 
 constexpr float maxTargetPressureBar(int nozzle) {
     return nozzle == 1 ? kRsmMaxTargetPressureBar : kWaterMaxTargetPressureBar;
+}
+
+// 11003 accepts all supported liquid profiles. 04RSM is restricted to
+// the explicit RSM 28/30/32 profiles; water and custom liquid are not mapped
+// to this direct-RSM table.
+inline bool supportedNozzleLiquid(int nozzle, int liquid) {
+    if (nozzle == 0) return liquid >= 0 && liquid <= 4;
+    return nozzle == 1 && liquid >= 1 && liquid <= 3;
+}
+
+// A missing NVS key means first boot and permits defaults. Any present but
+// malformed or rejected profile must block flow estimation until it is saved.
+inline bool storedProfileMustBlock(std::size_t bytesRead,
+                                   std::size_t expectedBytes,
+                                   bool settingsValid) {
+    return bytesRead != 0 &&
+           (bytesRead != expectedBytes || !settingsValid);
 }
 
 // 11003 is the water table; 04RSM is the supplied RSM table.
