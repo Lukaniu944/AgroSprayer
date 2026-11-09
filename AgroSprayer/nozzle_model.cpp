@@ -38,8 +38,12 @@ void nozzle_begin(){
     Preferences p;
     if(p.begin("agronozzle",true)){
         NozzleSettings s;
-        const size_t n=p.getBytes("settings",&s,sizeof(s));
+        const bool hasProfile=p.isKey("settings");
+        const size_t storedBytes=p.getBytesLength("settings");
+        const size_t n=storedBytes==sizeof(s)
+            ? p.getBytes("settings",&s,sizeof(s)) : 0;
         p.end();
+        bool valid=false;
         if(n==sizeof(s)){
             // V1/V2/V3 used the old water-reference model for 04RSM.
             // Preserve custom calibrations, but keep the table default at 1.54
@@ -54,12 +58,11 @@ void nozzle_begin(){
                 s.waterQ3[1]=agronozzle::migrateRsmQ3ToDirect(s.waterQ3[1],s.density);
                 s.magic=0x4e5a4c34;
             }
-            const bool valid=validSettings(s);
+            valid=validSettings(s);
             if(valid)ns=s;
-            profileFault=agronozzle::storedProfileMustBlock(n,sizeof(s),valid);
-        } else {
-            profileFault=agronozzle::storedProfileMustBlock(n,sizeof(s),false);
         }
+        profileFault=agronozzle::storedProfileMustBlock(
+            hasProfile,storedBytes,n,sizeof(s),valid);
     }
     volumeIntegrator.reset();
     uint32_t unusedEventMs = 0;
