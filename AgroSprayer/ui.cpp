@@ -1659,7 +1659,10 @@ static void nozzle_editor_refresh(){
         set_label_text_if_changed(nozzleValues[i],b);
     }
     int n=0;for(auto count:nozzleDraft.counts)n+=count;
-    snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
+    if(nozzle_profile_fault())
+        snprintf(b,sizeof(b),"BLAD ZAPISANEGO PROFILU - wybierz dysze i ciecz, a nastepnie ZAPISZ");
+    else
+        snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
     set_label_text_if_changed(nozzleMessage,b);
 }
 static void nozzle_cycle_cb(lv_event_t *e){
