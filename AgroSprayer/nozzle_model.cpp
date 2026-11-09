@@ -9,6 +9,7 @@
 #include <cmath>
 static NozzleSettings ns;
 static bool reading=false;
+static bool profileFault=false;
 static agrovolume::SectionVolumeIntegrator volumeIntegrator;
 static agrovolume::SectionEventLatch sectionEventLatch;
 void nozzle_section_change_at(uint32_t eventMs) {
@@ -24,16 +25,21 @@ const NozzleSettings &nozzle_settings(){return ns;}
 const char *nozzle_name(){return ns.nozzle?"04RSM":"11003";}
 const char *nozzle_liquid_name(){static const char *names[]={"WODA","RSM 28","RSM 30","RSM 32","WLASNA"};return names[ns.liquid];}
 static bool validSettings(const NozzleSettings &s){
-    if(s.magic!=0x4e5a4c34||s.nozzle>1||s.liquid>4||!std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
-    if(s.nozzle==1&&(s.liquid==0||s.liquid==4))return false;
+    if(s.magic!=0x4e5a4c34||s.nozzle>1||s.liquid>4||
+       !agronozzle::supportedNozzleLiquid(s.nozzle,s.liquid)||
+       !std::isfinite(s.density)||s.density<0.8f||s.density>1.6f)return false;
     for(auto n:s.counts)if(n<1||n>40)return false;
     for(int k=0;k<2;k++){const float q=s.waterQ3[k];if(!std::isfinite(q)||q<(k==1?0.08f:0.1f)||q>5)return false;}
     return true;
 }
 void nozzle_begin(){
-    ns=NozzleSettings{};Preferences p;
+    ns=NozzleSettings{};
+    profileFault=false;
+    Preferences p;
     if(p.begin("agronozzle",true)){
-        NozzleSettings s;auto n=p.getBytes("settings",&s,sizeof(s));p.end();
+        NozzleSettings s;
+        const size_t n=p.getBytes("settings",&s,sizeof(s));
+        p.end();
         if(n==sizeof(s)){
             // V1/V2/V3 used the old water-reference model for 04RSM.
             // Preserve custom calibrations, but keep the table default at 1.54
@@ -48,13 +54,18 @@ void nozzle_begin(){
                 s.waterQ3[1]=agronozzle::migrateRsmQ3ToDirect(s.waterQ3[1],s.density);
                 s.magic=0x4e5a4c34;
             }
-            if(validSettings(s))ns=s;
+            const bool valid=validSettings(s);
+            if(valid)ns=s;
+            profileFault=agronozzle::storedProfileMustBlock(n,sizeof(s),valid);
+        } else {
+            profileFault=agronozzle::storedProfileMustBlock(n,sizeof(s),false);
         }
     }
     volumeIntegrator.reset();
     uint32_t unusedEventMs = 0;
     sectionEventLatch.take(unusedEventMs);
     reading=false;
+    status=profileFault ? "PROFIL DYSZY - WYMAGA ZAPISU" : "BRAK CZUJNIKA";
 }
 bool nozzle_save(const NozzleSettings &s){
     if(bench_test_active()||!validSettings(s))return false;
@@ -62,6 +73,8 @@ bool nozzle_save(const NozzleSettings &s){
     nozzle_update();Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
     ns=s;
+    profileFault=false;
+    status="PROFIL ZAPISANY";
     // The old profile was settled above; do not blend its flow with the new one.
     volumeIntegrator.sample(millis(),liveSectionMask(),0.0f,false);
     reading=false;return true;
@@ -92,14 +105,15 @@ float nozzle_target_pressure(float total,int count,const NozzleSettings &s){
     }
     return (low+high)/2;
 }
-float nozzle_target_bar(){int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
+float nozzle_target_bar(){if(profileFault)return NAN;int n=0;const auto &s=sprayer_display_state();for(int i=0;i<6;i++)if(s.sections[i])n+=ns.counts[i];return nozzle_target_pressure(targetFlowX10()/10.0f,n,ns);}
 void nozzle_update(){
     const uint32_t now=millis();
     const uint8_t mask=liveSectionMask();
     int count=0;for(int i=0;i<SECTION_COUNT;i++)if(gState.sections[i])count+=ns.counts[i];
     const bool fresh=gState.aogOk&&gState.rxPackets>0&&(uint32_t)(now-gState.lastAogMs)<=AOG_TIMEOUT_MS;
     float q=0;reading=false;
-    if(bench_test_active())status="SYMULACJA";
+    if(profileFault)status="PROFIL DYSZY - WYMAGA ZAPISU";
+    else if(bench_test_active())status="SYMULACJA";
     else if(!count){reading=true;status="SEKCJE WYLACZONE";}
     else if(!fresh)status="BRAK DANYCH SEKCJI";
     else if(!pressure_sensor_valid())status="BRAK CZUJNIKA";
@@ -123,7 +137,8 @@ void nozzle_update(){
     volumeIntegrator.sample(now,mask,q,reading,gState.speedX10,ui_get_active_boom_width_m());
     gState.actualFlowX10=reading?(int)lroundf(q*10):0;
 }
-bool nozzle_reading_valid(){return reading;}
+bool nozzle_reading_valid(){return reading&&!profileFault;}
+bool nozzle_profile_fault(){return profileFault;}
 double nozzle_total_liters(){return volumeIntegrator.liters();}
 double nozzle_total_hectares(){return volumeIntegrator.hectares();}
 double nozzle_area_liters(){return volumeIntegrator.areaLiters();}
