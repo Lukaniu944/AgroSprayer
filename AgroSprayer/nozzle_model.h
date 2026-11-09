@@ -17,6 +17,7 @@ void nozzle_update();
 // Notify before changing any live section; eventMs is millis() at command receipt.
 void nozzle_section_change_at(uint32_t eventMs);
 bool nozzle_reading_valid();
+bool nozzle_profile_fault();
 double nozzle_total_liters();
 double nozzle_total_hectares();
 double nozzle_area_liters();
