@@ -69,6 +69,26 @@ int main() {
     near(agronozzle::maxTargetPressureBar(1), 4.8f,
          "04RSM automatic target remains below 4.9 bar trip");
 
+    expect(agronozzle::supportedNozzleLiquid(0, 0),
+           "11003 water profile is supported");
+    expect(agronozzle::supportedNozzleLiquid(0, 4),
+           "11003 custom-liquid profile remains supported");
+    expect(agronozzle::supportedNozzleLiquid(1, 1) &&
+           agronozzle::supportedNozzleLiquid(1, 2) &&
+           agronozzle::supportedNozzleLiquid(1, 3),
+           "04RSM supports explicit RSM 28/30/32 profiles");
+    expect(!agronozzle::supportedNozzleLiquid(1, 0) &&
+           !agronozzle::supportedNozzleLiquid(1, 4),
+           "04RSM rejects water and unmodelled custom liquid");
+    expect(!agronozzle::storedProfileMustBlock(0, 32, false),
+           "missing NVS profile permits first-boot defaults");
+    expect(!agronozzle::storedProfileMustBlock(32, 32, true),
+           "valid stored profile is accepted");
+    expect(agronozzle::storedProfileMustBlock(32, 32, false),
+           "rejected stored profile blocks flow estimation");
+    expect(agronozzle::storedProfileMustBlock(31, 32, true),
+           "truncated stored profile blocks flow estimation");
+
     std::cout << "OK: " << checks << " nozzle table assertions passed\n";
     return 0;
 }
