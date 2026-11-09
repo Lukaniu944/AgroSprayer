@@ -25,11 +25,14 @@ inline bool supportedNozzleLiquid(int nozzle, int liquid) {
 
 // A missing NVS key means first boot and permits defaults. Any present but
 // malformed or rejected profile must block flow estimation until it is saved.
-inline bool storedProfileMustBlock(std::size_t bytesRead,
+inline bool storedProfileMustBlock(bool keyExists,
+                                   std::size_t storedBytes,
+                                   std::size_t bytesRead,
                                    std::size_t expectedBytes,
                                    bool settingsValid) {
-    return bytesRead != 0 &&
-           (bytesRead != expectedBytes || !settingsValid);
+    return keyExists &&
+           (storedBytes != expectedBytes || bytesRead != expectedBytes ||
+            !settingsValid);
 }
 
 // 11003 is the water table; 04RSM is the supplied RSM table.
