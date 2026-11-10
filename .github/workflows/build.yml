@@ -22,7 +22,7 @@ jobs:
           /tmp/agrosprayer-section-volume-ubsan
 
   esp32-build:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_name == 'fix/nozzle-rsm-table-bench')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/nozzle-rsm-table-bench'
     needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
