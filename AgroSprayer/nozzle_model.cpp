@@ -54,8 +54,13 @@ void nozzle_begin(){
                 s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
             }
             if(s.magic==0x4e5a4c31||s.magic==0x4e5a4c32||s.magic==0x4e5a4c33){
-                if(s.nozzle==1&&s.liquid==0){s.liquid=1;s.density=1.28f;}
-                s.waterQ3[1]=agronozzle::migrateRsmQ3ToDirect(s.waterQ3[1],s.density);
+                if(s.nozzle==1){
+                    if(s.liquid==0){s.liquid=1;s.density=1.28f;}
+                    if(s.liquid==4)
+                        s.waterQ3[1]=agronozzle::migrateCustomRsmQ3ToDirect(s.waterQ3[1],s.density);
+                    else
+                        s.waterQ3[1]=agronozzle::migrateRsmQ3ToDirect(s.waterQ3[1],s.density);
+                }
                 s.magic=0x4e5a4c34;
             }
             valid=validSettings(s);

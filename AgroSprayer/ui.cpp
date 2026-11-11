@@ -1492,7 +1492,7 @@ static void quick_open_input_cb(lv_event_t *e)
     close_quick_input();
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
-    if(quickField==101&&nozzleDraft.nozzle==1)return;
+    if(quickField==101&&nozzleDraft.nozzle==1&&nozzleDraft.liquid!=4)return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
     home_text(quickModal,quickField==100 ? (nozzleDraft.nozzle ? "WYDATEK JEDNEJ KONCOWKI - RSM PRZY 3 bar" : "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar") : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
     lv_obj_t *field=panel(quickModal,24,65,756,60,C_BORDER());
@@ -1673,8 +1673,8 @@ static void nozzle_cycle_cb(lv_event_t *e){
         nozzleDraft.liquid=nozzleDraft.nozzle?1:0;
         nozzleDraft.density=nozzleDraft.nozzle?1.28f:1.0f;
     } else if(nozzleDraft.nozzle){
-        nozzleDraft.liquid=nozzleDraft.liquid>=3?1:nozzleDraft.liquid+1;
-        nozzleDraft.density=rho[nozzleDraft.liquid];
+        nozzleDraft.liquid=nozzleDraft.liquid>=4?1:nozzleDraft.liquid+1;
+        if(nozzleDraft.liquid<4)nozzleDraft.density=rho[nozzleDraft.liquid];
     } else {
         nozzleDraft.liquid=(nozzleDraft.liquid+1)%5;
         if(nozzleDraft.liquid<4)nozzleDraft.density=rho[nozzleDraft.liquid];
@@ -1699,7 +1699,7 @@ static void nozzle_open_cb(lv_event_t *){
     for(int i=0;i<8;i++){
         int x=i<2?20+i*462:20+(i-2)*154;
         int y=i<2?78:182,w=i<2?446:142;
-        const char *fieldName=i==0?(nozzleDraft.nozzle?"WYDATEK RSM PRZY 3 bar":"WYDATEK WODY PRZY 3 bar"):(i==1&&nozzleDraft.nozzle?"GESTOSC (INFO - BEZ KOREKTY)":names[i]);
+        const char *fieldName=i==0?(nozzleDraft.nozzle?"WYDATEK RSM PRZY 3 bar":"WYDATEK WODY PRZY 3 bar"):(i==1&&nozzleDraft.nozzle&&nozzleDraft.liquid!=4?"GESTOSC (INFO - BEZ KOREKTY)":names[i]);
         home_text(nozzlePanel,fieldName,x,y,C_MUTED(),&lv_font_montserrat_16);
         auto *b=home_control(nozzlePanel,x,y+24,w,48,"--",nullptr);
         lv_obj_add_event_cb(b,quick_open_input_cb,LV_EVENT_CLICKED,(void*)(intptr_t)(100+i));

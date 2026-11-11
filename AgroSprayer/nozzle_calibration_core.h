@@ -15,12 +15,11 @@ constexpr float maxTargetPressureBar(int nozzle) {
     return nozzle == 1 ? kRsmMaxTargetPressureBar : kWaterMaxTargetPressureBar;
 }
 
-// 11003 accepts all supported liquid profiles. 04RSM is restricted to
-// the explicit RSM 28/30/32 profiles; water and custom liquid are not mapped
-// to this direct-RSM table.
+// 11003 accepts water, RSM and custom-liquid profiles. 04RSM accepts
+// RSM 28/30/32 and a custom liquid with a direct Q3 calibration.
 inline bool supportedNozzleLiquid(int nozzle, int liquid) {
     if (nozzle == 0) return liquid >= 0 && liquid <= 4;
-    return nozzle == 1 && liquid >= 1 && liquid <= 3;
+    return nozzle == 1 && liquid >= 1 && liquid <= 4;
 }
 
 // A missing NVS key means first boot and permits defaults. Any present but
@@ -98,6 +97,16 @@ inline float migrateRsmQ3ToDirect(float legacyWaterQ3, float density) {
     }
     if (std::fabs(legacyWaterQ3 - kRsmTableQ3) <= 0.0001f)
         return kRsmTableQ3;
+    return legacyWaterQ3 / std::sqrt(density);
+}
+
+// A legacy WLASNA profile is a measured calibration, even when its Q3
+// happens to equal the old table default. Preserve its old corrected output.
+inline float migrateCustomRsmQ3ToDirect(float legacyWaterQ3, float density) {
+    if (!std::isfinite(legacyWaterQ3) || !std::isfinite(density) ||
+        legacyWaterQ3 <= 0.0f || density <= 0.0f) {
+        return std::numeric_limits<float>::quiet_NaN();
+    }
     return legacyWaterQ3 / std::sqrt(density);
 }
 } // namespace agronozzle

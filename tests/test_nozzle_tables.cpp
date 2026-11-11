@@ -78,8 +78,16 @@ int main() {
            agronozzle::supportedNozzleLiquid(1, 3),
            "04RSM supports explicit RSM 28/30/32 profiles");
     expect(!agronozzle::supportedNozzleLiquid(1, 0) &&
-           !agronozzle::supportedNozzleLiquid(1, 4),
-           "04RSM rejects water and unmodelled custom liquid");
+           agronozzle::supportedNozzleLiquid(1, 4),
+           "04RSM rejects water but supports calibrated custom liquid");
+    const float legacyCustomQ3 = 1.54f;
+    const float directCustomQ3 =
+        agronozzle::migrateCustomRsmQ3ToDirect(legacyCustomQ3, 1.28f);
+    near(directCustomQ3, legacyCustomQ3 / std::sqrt(1.28f),
+         "custom RSM migration converts even when legacy Q3 equals table default");
+    near(agronozzle::calibratedNozzleFlow(1.54f, directCustomQ3, 1, 1.28f),
+         legacyCustomQ3 / std::sqrt(1.28f),
+         "custom 04RSM calibration preserves direct output without second correction");
     expect(!agronozzle::storedProfileMustBlock(false, 0, 0, 32, false),
            "missing NVS profile permits first-boot defaults");
     expect(!agronozzle::storedProfileMustBlock(true, 32, 32, 32, true),
