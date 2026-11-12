@@ -34,6 +34,13 @@ inline bool storedProfileMustBlock(bool keyExists,
             !settingsValid);
 }
 
+// A failed NVS namespace open is not equivalent to a first boot.
+// Open read/write so a missing namespace can be created; if the open still
+// fails, block nozzle estimation instead of silently assuming 11003 defaults.
+inline bool profileStorageOpenMustBlock(bool openSucceeded) {
+    return !openSucceeded;
+}
+
 // 11003 is the water table; 04RSM is the supplied RSM table.
 // Interpolate Q^2 linearly against pressure (Q proportional to sqrt(bar)).
 inline float nozzleTableFlow(float bar, int nozzle) {

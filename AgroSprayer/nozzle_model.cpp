@@ -36,7 +36,11 @@ void nozzle_begin(){
     ns=NozzleSettings{};
     profileFault=false;
     Preferences p;
-    if(p.begin("agronozzle",true)){
+    // Read/write mode creates an empty namespace on first boot. If NVS itself
+    // cannot be opened, fail closed instead of silently assuming 11003.
+    const bool storageOpened=p.begin("agronozzle",false);
+    profileFault=agronozzle::profileStorageOpenMustBlock(storageOpened);
+    if(storageOpened){
         NozzleSettings s;
         const bool hasProfile=p.isKey("settings");
         const size_t storedBytes=p.getBytesLength("settings");

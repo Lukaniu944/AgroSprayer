@@ -90,6 +90,10 @@ int main() {
          "custom 04RSM calibration preserves direct output without second correction");
     expect(!agronozzle::storedProfileMustBlock(false, 0, 0, 32, false),
            "missing NVS profile permits first-boot defaults");
+    expect(!agronozzle::profileStorageOpenMustBlock(true),
+           "successfully opened NVS namespace permits profile lookup");
+    expect(agronozzle::profileStorageOpenMustBlock(false),
+           "NVS namespace open failure blocks nozzle estimation");
     expect(!agronozzle::storedProfileMustBlock(true, 32, 32, 32, true),
            "valid stored profile is accepted");
     expect(agronozzle::storedProfileMustBlock(true, 32, 32, 32, false),
