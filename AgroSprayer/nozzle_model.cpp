@@ -50,16 +50,21 @@ void nozzle_begin(){
         bool valid=false;
         if(n==sizeof(s)){
             // V1/V2/V3 used the old water-reference model for 04RSM.
-            // Preserve custom calibrations, but keep the table default at 1.54
-            // l/min and migrate it to the direct RSM reference used by V4.
-            if(s.magic==0x4e5a4c31){
-                s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
-            } else if(s.magic==0x4e5a4c32){
-                s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
-            }
-            if(s.magic==0x4e5a4c31||s.magic==0x4e5a4c32||s.magic==0x4e5a4c33){
+            // A legacy 04RSM+WODA selection is ambiguous: preserve the stored
+            // profile as a fault and require an explicit liquid choice instead
+            // of silently assuming RSM 28 during migration.
+            const bool legacyVersion = s.magic==0x4e5a4c31 ||
+                                       s.magic==0x4e5a4c32 ||
+                                       s.magic==0x4e5a4c33;
+            const bool needsLiquidChoice =
+                agronozzle::legacyProfileNeedsLiquidSelection(s.nozzle,s.liquid);
+            if(legacyVersion && !needsLiquidChoice){
+                if(s.magic==0x4e5a4c31){
+                    s.waterQ3[1]=agronozzle::migrateLegacyRsmQ3(s.waterQ3[1]);
+                } else if(s.magic==0x4e5a4c32){
+                    s.waterQ3[1]=agronozzle::migrateV2RsmQ3(s.waterQ3[1]);
+                }
                 if(s.nozzle==1){
-                    if(s.liquid==0){s.liquid=1;s.density=1.28f;}
                     if(s.liquid==4)
                         s.waterQ3[1]=agronozzle::migrateCustomRsmQ3ToDirect(s.waterQ3[1],s.density);
                     else

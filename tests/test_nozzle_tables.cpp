@@ -80,6 +80,13 @@ int main() {
     expect(!agronozzle::supportedNozzleLiquid(1, 0) &&
            agronozzle::supportedNozzleLiquid(1, 4),
            "04RSM rejects water but supports calibrated custom liquid");
+    expect(!agronozzle::legacyProfileNeedsLiquidSelection(0, 0),
+           "legacy 11003 water profile can migrate automatically");
+    expect(agronozzle::legacyProfileNeedsLiquidSelection(1, 0),
+           "legacy 04RSM water profile requires explicit liquid selection");
+    expect(!agronozzle::legacyProfileNeedsLiquidSelection(1, 1) &&
+           !agronozzle::legacyProfileNeedsLiquidSelection(1, 4),
+           "explicit RSM and custom-liquid profiles remain migratable");
     const float legacyCustomQ3 = 1.54f;
     const float directCustomQ3 =
         agronozzle::migrateCustomRsmQ3ToDirect(legacyCustomQ3, 1.28f);

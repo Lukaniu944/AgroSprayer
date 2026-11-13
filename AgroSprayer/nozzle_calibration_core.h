@@ -22,6 +22,12 @@ inline bool supportedNozzleLiquid(int nozzle, int liquid) {
     return nozzle == 1 && liquid >= 1 && liquid <= 4;
 }
 
+// Legacy 04RSM profiles marked WODA are ambiguous: do not silently
+// reinterpret them as RSM 28. Require an explicit liquid selection.
+inline bool legacyProfileNeedsLiquidSelection(int nozzle, int liquid) {
+    return nozzle == 1 && liquid == 0;
+}
+
 // A missing NVS key means first boot and permits defaults. Any present but
 // malformed or rejected profile must block flow estimation until it is saved.
 inline bool storedProfileMustBlock(bool keyExists,
