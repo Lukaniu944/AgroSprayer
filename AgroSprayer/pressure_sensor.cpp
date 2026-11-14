@@ -1,14 +1,21 @@
 #include "pressure_sensor.h"
 #include "board_config.h"
 #include "hw_i2c.h"
-#include <math.h>
+#include "pressure_sensor_core.h"
+#include <cmath>
+#include <atomic>
 
 static i2c_master_dev_handle_t device = nullptr;
-static bool pending = false, valid = false, filtered = false;
-static uint32_t started = 0, attempted = 0, lastGood = 0;
+static bool pending = false, filtered = false;
+static std::atomic<bool> valid{false};
+static std::atomic<bool> overpressureTrip{false};
+static uint32_t started = 0, attempted = 0;
+static std::atomic<uint32_t> lastGood{0};
 static uint32_t retryMs = 0;
-static float bar = 0;
-static int signalMv = -1;
+// The filter is owned by pressure_sensor_update(). Other tasks read atomic snapshots.
+static float filteredBar = 0;
+static std::atomic<int> publishedBarX10{0};
+static std::atomic<int> signalMv{-1};
 
 static bool readRegister(uint8_t reg, uint16_t &value) {
     uint8_t bytes[2];
@@ -17,20 +24,29 @@ static bool readRegister(uint8_t reg, uint16_t &value) {
     return true;
 }
 static void busError() {
-    pending = valid = filtered = false;
-    signalMv = -1;
+    pending = false;
+    valid.store(false, std::memory_order_release);
+    filtered = false;
+    signalMv.store(-1, std::memory_order_release);
     retryMs = 2000;
 }
 void pressure_sensor_begin() {
-    pending = valid = filtered = false;
-    signalMv = -1;
+    pending = false;
+    valid.store(false, std::memory_order_release);
+    filtered = false;
+    overpressureTrip.store(false, std::memory_order_release);
+    signalMv.store(-1, std::memory_order_release);
     retryMs = 0;
     attempted = millis() - PRESSURE_INTERVAL_MS;
     if (!device && !hw_i2c_add_device(PRESSURE_ADS_ADDR, &device)) busError();
 }
 void pressure_sensor_update() {
     const uint32_t now = millis();
-    if (valid && (uint32_t)(now - lastGood) > 1000) valid = filtered = false;
+    if (valid.load(std::memory_order_acquire) &&
+        (uint32_t)(now - lastGood.load(std::memory_order_acquire)) > 1000) {
+        // pressure_sensor_valid() owns the timeout decision; reset only smoothing here.
+        filtered = false;
+    }
     if (!pending) {
         const uint32_t interval = retryMs ? retryMs : PRESSURE_INTERVAL_MS;
         if ((uint32_t)(now - attempted) < interval) return;
@@ -56,23 +72,52 @@ void pressure_sensor_update() {
     uint16_t raw;
     if (!readRegister(0, raw)) { busError(); return; }
     pending = false;
-    const float sensorV = (int16_t)raw * (4.096f / 32768.0f) * PRESSURE_DIVIDER_RATIO;
-    signalMv = (int)lroundf(sensorV * 1000.0f);
-    if (!isfinite(sensorV) || sensorV < PRESSURE_VALID_MIN_V || sensorV > PRESSURE_VALID_MAX_V) {
-        valid = filtered = false;
+    const float sensorV = agrosensor::sensor_voltage_from_ads1115_raw(
+        (int16_t)raw, 4.096f / 32768.0f, PRESSURE_DIVIDER_RATIO);
+    if (!std::isfinite(sensorV)) {
+        signalMv.store(-1, std::memory_order_release);
+        valid.store(false, std::memory_order_release);
+        filtered = false;
         return;
     }
-    float measuredBar = (sensorV - PRESSURE_ZERO_V) / (PRESSURE_FULL_V - PRESSURE_ZERO_V)
-                        * PRESSURE_MAX_PSI * 0.0689475729f;
-    const float maxBar = PRESSURE_MAX_PSI * 0.0689475729f;
+    signalMv.store((int)std::lround(sensorV * 1000.0f), std::memory_order_release);
+    if (!agrosensor::voltage_valid(sensorV, PRESSURE_VALID_MIN_V, PRESSURE_VALID_MAX_V)) {
+        valid.store(false, std::memory_order_release);
+        filtered = false;
+        return;
+    }
+    const float rawMeasuredBar = agrosensor::raw_pressure_bar_from_voltage(
+        sensorV, PRESSURE_ZERO_V, PRESSURE_FULL_V, PRESSURE_MAX_PSI);
+    if (!std::isfinite(rawMeasuredBar)) {
+        valid.store(false, std::memory_order_release);
+        filtered = false;
+        return;
+    }
+    // Trip on raw, unfiltered pressure so smoothing cannot delay motor shutdown.
+    if (agrosensor::overpressure_trip(rawMeasuredBar)) {
+        overpressureTrip.store(true, std::memory_order_release);
+    }
+    float measuredBar = rawMeasuredBar;
+    const float maxBar = PRESSURE_MAX_PSI * agrosensor::kBarPerPsi;
     if (measuredBar < 0) measuredBar = 0;
     if (measuredBar > maxBar) measuredBar = maxBar;
-    bar = filtered ? bar + 0.25f * (measuredBar - bar) : measuredBar;
-    filtered = valid = true;
-    lastGood = now;
+    filteredBar = filtered ? filteredBar + 0.25f * (measuredBar - filteredBar) : measuredBar;
+    filtered = true;
+    publishedBarX10.store((int)std::lround(filteredBar * 10.0f), std::memory_order_release);
+    lastGood.store(now, std::memory_order_relaxed);
+    valid.store(true, std::memory_order_release);
 }
 bool pressure_sensor_valid() {
-    return valid && (uint32_t)(millis() - lastGood) <= 1000;
+    if (!valid.load(std::memory_order_acquire)) return false;
+    const uint32_t goodAt = lastGood.load(std::memory_order_acquire);
+    return (uint32_t)(millis() - goodAt) <= 1000;
 }
-int pressure_sensor_bar_x10() { return (int)lroundf(bar * 10.0f); }
-int pressure_sensor_signal_mv() { return signalMv; }
+bool pressure_sensor_overpressure() {
+    return overpressureTrip.load(std::memory_order_acquire);
+}
+int pressure_sensor_bar_x10() {
+    return publishedBarX10.load(std::memory_order_acquire);
+}
+int pressure_sensor_signal_mv() {
+    return signalMv.load(std::memory_order_acquire);
+}
