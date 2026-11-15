@@ -17,6 +17,15 @@ int main() {
         test(std::isfinite(actual) && std::fabs(actual - expected) <= tolerance, name);
     };
 
+    test(agrosensor::sample_is_fresh(1000, 700),
+         "pressure sample remains fresh at the 300 ms limit");
+    test(!agrosensor::sample_is_fresh(1001, 700),
+         "pressure sample expires after the 300 ms limit");
+    test(agrosensor::sample_is_fresh(25, UINT32_MAX - 274u),
+         "pressure freshness handles millis rollover at 300 ms");
+    test(!agrosensor::sample_is_fresh(26, UINT32_MAX - 274u),
+         "pressure freshness expires correctly after millis rollover");
+
     test(agrosensor::voltage_valid(0.3f, 0.3f, 4.7f), "minimum sensor voltage is valid");
     test(agrosensor::voltage_valid(4.7f, 0.3f, 4.7f), "maximum sensor voltage is valid");
     test(!agrosensor::voltage_valid(0.299f, 0.3f, 4.7f), "below minimum voltage is invalid");

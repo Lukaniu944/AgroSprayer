@@ -1,5 +1,5 @@
 #pragma once
-// Hardware-independent pressure conversion and trip threshold.
+// Hardware-independent pressure conversion, sample freshness and trip threshold.
 // Keep this math shared between firmware and native regression tests.
 #include <cmath>
 #include <cstdint>
@@ -8,6 +8,13 @@
 namespace agrosensor {
 constexpr float kBarPerPsi = 0.0689475729f;
 constexpr float kPressureTripBar = 4.9f;
+// ADS1115 is requested every 100 ms. Allow scheduling jitter, but do not
+// let the watchdog trust a pressure sample older than three sample periods.
+constexpr uint32_t kPressureSampleTimeoutMs = 300;
+
+inline bool sample_is_fresh(uint32_t now, uint32_t lastGood) {
+    return static_cast<uint32_t>(now - lastGood) <= kPressureSampleTimeoutMs;
+}
 
 inline float sensor_voltage_from_ads1115_raw(int16_t raw, float lsbV,
                                               float dividerRatio) {

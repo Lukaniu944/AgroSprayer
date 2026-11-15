@@ -43,7 +43,8 @@ void pressure_sensor_begin() {
 void pressure_sensor_update() {
     const uint32_t now = millis();
     if (valid.load(std::memory_order_acquire) &&
-        (uint32_t)(now - lastGood.load(std::memory_order_acquire)) > 1000) {
+        !agrosensor::sample_is_fresh(
+            now, lastGood.load(std::memory_order_acquire))) {
         // pressure_sensor_valid() owns the timeout decision; reset only smoothing here.
         filtered = false;
     }
@@ -110,7 +111,7 @@ void pressure_sensor_update() {
 bool pressure_sensor_valid() {
     if (!valid.load(std::memory_order_acquire)) return false;
     const uint32_t goodAt = lastGood.load(std::memory_order_acquire);
-    return (uint32_t)(millis() - goodAt) <= 1000;
+    return agrosensor::sample_is_fresh(millis(), goodAt);
 }
 bool pressure_sensor_overpressure() {
     return overpressureTrip.load(std::memory_order_acquire);
