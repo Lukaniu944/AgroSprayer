@@ -17,15 +17,15 @@ static void outputsOff() {
     gpio_set_level((gpio_num_t)VALVE_IN2_PIN, 0);
 }
 static void watchdogTask(void *) {
-    bool pressureFaultActive = false;
+    valvegate::WatchdogState watchdogState;
     for (;;) {
         const bool pressureFault =
             !pressure_sensor_valid() || pressure_sensor_overpressure();
+        const valvegate::WatchdogDecision decision =
+            valvegate::watchdogStep(watchdogState, pressureFault);
         portENTER_CRITICAL(&mux);
-        if (pressureFault) {
-            // Invalidate pending AUTO permits once per fault transition.
-            if (!pressureFaultActive) autoPulsePermit.stop();
-            pressureFaultActive = true;
+        if (decision.invalidateAutoPermit) autoPulsePermit.stop();
+        if (decision.forceOutputsOff) {
             // Force both bridge inputs low even if the software direction
             // flag is already zero or has become inconsistent.
             outputsOff();
@@ -33,14 +33,11 @@ static void watchdogTask(void *) {
             direction = 0;
             armed = false;
             stopped = millis();
-        } else {
-            pressureFaultActive = false;
-            if (direction &&
-                (uint32_t)(millis() - started) >= pulseDuration) {
-                outputsOff();
-                direction = 0;
-                stopped = millis();
-            }
+        } else if (direction &&
+                   (uint32_t)(millis() - started) >= pulseDuration) {
+            outputsOff();
+            direction = 0;
+            stopped = millis();
         }
         portEXIT_CRITICAL(&mux);
         vTaskDelay(pdMS_TO_TICKS(10));

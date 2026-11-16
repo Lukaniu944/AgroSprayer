@@ -52,7 +52,52 @@ int main() {
     permit.stop();
     expect(!permit.allows(), "final STOP leaves AUTO disabled");
 
+    // Exercise the exact watchdog decision helper used by the FreeRTOS task.
+    valvegate::WatchdogState watchdog;
+    valvegate::AutoPulsePermit watchdogPermit;
+    const uint32_t watchdogToken = watchdogPermit.generation();
+    expect(watchdogPermit.arm(watchdogToken),
+           "watchdog scenario starts with an armed AUTO permit");
+
+    auto decision = valvegate::watchdogStep(watchdog, false);
+    expect(!decision.forceOutputsOff && !decision.invalidateAutoPermit,
+           "healthy pressure does not force an output stop");
+
+    decision = valvegate::watchdogStep(watchdog, true);
+    expect(decision.forceOutputsOff && decision.invalidateAutoPermit,
+           "first pressure fault forces outputs off and invalidates AUTO");
+    if (decision.invalidateAutoPermit) watchdogPermit.stop();
+    expect(!watchdogPermit.allows(),
+           "first watchdog pressure fault disables AUTO permit");
+    expect(watchdogPermit.generation() == watchdogToken + 1,
+           "first watchdog fault advances AUTO generation once");
+
+    decision = valvegate::watchdogStep(watchdog, true);
+    expect(decision.forceOutputsOff && !decision.invalidateAutoPermit,
+           "sustained pressure fault keeps outputs forced off without repeated invalidation");
+    if (decision.invalidateAutoPermit) watchdogPermit.stop();
+    expect(watchdogPermit.generation() == watchdogToken + 1,
+           "sustained fault does not repeatedly advance AUTO generation");
+
+    decision = valvegate::watchdogStep(watchdog, false);
+    expect(!decision.forceOutputsOff && !decision.invalidateAutoPermit,
+           "pressure recovery clears fault-active state but does not re-arm AUTO");
+    expect(!watchdogPermit.allows(),
+           "pressure recovery never restores the old AUTO permit");
+
+    const uint32_t recoveredToken = watchdogPermit.generation();
+    expect(watchdogPermit.arm(recoveredToken),
+           "operator can arm a fresh AUTO generation after recovery");
+    decision = valvegate::watchdogStep(watchdog, true);
+    expect(decision.forceOutputsOff && decision.invalidateAutoPermit,
+           "a new pressure fault after recovery invalidates the new permit");
+    if (decision.invalidateAutoPermit) watchdogPermit.stop();
+    expect(!watchdogPermit.allows(),
+           "second fault leaves AUTO disabled");
+    expect(watchdogPermit.generation() == recoveredToken + 1,
+           "second fault advances the new generation once");
+
     std::cout << "OK: " << checks
-              << " AUTO permit generation assertions passed\n";
+              << " AUTO permit and watchdog assertions passed\n";
     return 0;
 }
