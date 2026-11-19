@@ -1,4 +1,5 @@
 #include "nozzle_model.h"
+#include "configuration_interlock.h"
 #include "aog.h"
 #include "nozzle_calibration_core.h"
 #include "section_volume_core.h"
@@ -85,7 +86,7 @@ void nozzle_begin(){
     status=profileFault ? "PROFIL DYSZY - WYMAGA ZAPISU" : "BRAK CZUJNIKA";
 }
 bool nozzle_save(const NozzleSettings &s){
-    if(bench_test_active()||!validSettings(s))return false;
+    if(!sprayer_configuration_edit_allowed()||!validSettings(s))return false;
     // Settle old-profile consumption before changing calibration.
     nozzle_update();Preferences p;if(!p.begin("agronozzle",false))return false;
     auto n=p.putBytes("settings",&s,sizeof(s));p.end();if(n!=sizeof(s))return false;
