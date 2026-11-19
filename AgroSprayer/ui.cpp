@@ -17,6 +17,7 @@
 #include "nozzle_model.h"
 #include "auto_regulator.h"
 #include "valve_ui_interlock.h"
+#include "configuration_interlock.h"
 #include <cmath>
 
 extern "C" { LV_FONT_DECLARE(dashboard_font_48); LV_FONT_DECLARE(home_font_18); LV_FONT_DECLARE(home_font_24); LV_FONT_DECLARE(home_font_32); }
@@ -456,12 +457,11 @@ static void section_editor_refresh()
     char buf[48];
 
     if (sectionEditorTitle) {
-        snprintf(
-            buf,
-            sizeof(buf),
-            "SEKCJA %d",
-            sectionEditIndex + 1
-        );
+        if (sprayer_configuration_edit_allowed()) {
+            snprintf(buf, sizeof(buf), "SEKCJA %d", sectionEditIndex + 1);
+        } else {
+            snprintf(buf, sizeof(buf), "EDYCJA ZABLOKOWANA");
+        }
         set_label_text_if_changed(sectionEditorTitle, buf);
     }
 
@@ -564,6 +564,10 @@ static void section_next_cb(lv_event_t *)
 
 static void section_minus_len_cb(lv_event_t *)
 {
+    if (!sprayer_configuration_edit_allowed()) {
+        section_editor_refresh();
+        return;
+    }
     sectionWidthM[sectionEditIndex] -= 0.1f;
 
     if (sectionWidthM[sectionEditIndex] < 0.1f) {
@@ -578,6 +582,10 @@ static void section_minus_len_cb(lv_event_t *)
 
 static void section_plus_len_cb(lv_event_t *)
 {
+    if (!sprayer_configuration_edit_allowed()) {
+        section_editor_refresh();
+        return;
+    }
     sectionWidthM[sectionEditIndex] += 0.1f;
 
     if (sectionWidthM[sectionEditIndex] > 20.0f) {
@@ -592,6 +600,10 @@ static void section_plus_len_cb(lv_event_t *)
 
 static void section_defaults_cb(lv_event_t *)
 {
+    if (!sprayer_configuration_edit_allowed()) {
+        section_editor_refresh();
+        return;
+    }
     const float defaults[SECTION_COUNT] = {
         2.5f, 4.0f, 4.0f, 4.0f, 4.0f, 2.5f
     };
@@ -605,6 +617,10 @@ static void section_defaults_cb(lv_event_t *)
 
 static void section_save_cb(lv_event_t *)
 {
+    if (!sprayer_configuration_edit_allowed()) {
+        section_editor_refresh();
+        return;
+    }
     sectionPrefs.begin("agrosec", false);
 
     for (int i = 0; i < SECTION_COUNT; i++) {
@@ -1412,17 +1428,21 @@ static void close_quick_input()
 static void quick_settings_refresh()
 {
     char text[48];
+    const bool editAllowed = sprayer_configuration_edit_allowed();
     for (int i=0; i<SECTION_COUNT; ++i) {
         snprintf(text,sizeof(text),"%.1f",sectionWidthM[i]);
         set_label_text_if_changed(quickWidths[i],text);
     }
     snprintf(text,sizeof(text),"BELKA: %.1f m",section_total_width_m());
     set_label_text_if_changed(quickTotal,text);
-    set_label_text_if_changed(quickMessage,bench_test_active() ? "Zakoncz symulacje, aby zmieniac ustawienia." :
+    const char *blockedMessage = bench_test_active()
+        ? "Zakoncz symulacje, aby zmieniac ustawienia."
+        : "Edycja zablokowana: wylacz sekcje, rozbroj AUTO i zatrzymaj zawor.";
+    set_label_text_if_changed(quickMessage, !editAllowed ? blockedMessage :
         quickStatus && (int32_t)(quickStatusUntil-millis())>0 ? quickStatus :
         quickWidthsDirty ? "Zmienione szerokosci - nacisnij ZAPISZ." : "Dotknij liczby, aby wpisac wartosc.");
     for(int i=0;i<quickInputCount;++i) {
-        const bool disabled=bench_test_active();
+        const bool disabled = !editAllowed;
         if(lv_obj_has_state(quickInputs[i],LV_STATE_DISABLED)!=disabled) {
             if(disabled) lv_obj_add_state(quickInputs[i],LV_STATE_DISABLED);
             else lv_obj_remove_state(quickInputs[i],LV_STATE_DISABLED);
@@ -1433,6 +1453,7 @@ static void quick_commit_value(float value)
 {
     quickStatus=nullptr;
     if(quickField>=0 && quickField<SECTION_COUNT) {
+        if (!sprayer_configuration_edit_allowed()) return;
         sectionWidthM[quickField]=((int)(value*10+.5f))/10.0f;
         quickWidthsDirty=true;
         section_editor_refresh(); refresh_sprayer_scene();
@@ -1441,6 +1462,16 @@ static void quick_commit_value(float value)
 }
 static void quick_accept_cb(lv_event_t *)
 {
+    const bool configField =
+        (quickField >= 0 && quickField < SECTION_COUNT) ||
+        (quickField >= 100 && quickField <= 107);
+    if (configField && !sprayer_configuration_edit_allowed()) {
+        close_quick_input();
+        quickStatus = "Edycja zablokowana: wylacz sekcje, rozbroj AUTO i zatrzymaj zawor.";
+        quickStatusUntil = millis() + 3000;
+        quick_settings_refresh();
+        return;
+    }
     if(bench_test_active()) {close_quick_input();return;}
     char text[32];snprintf(text,sizeof(text),"%s",quickEntry);
     for(char *p=text;*p;++p) if(*p==',') *p='.';
@@ -1472,7 +1503,16 @@ static void quick_accept_cb(lv_event_t *)
 static void quick_cancel_cb(lv_event_t *) { close_quick_input(); }
 static void quick_key_cb(lv_event_t *e)
 {
-    if (!quickText || bench_test_active()) return;
+    if (!quickText) return;
+    const bool configField =
+        (quickField >= 0 && quickField < SECTION_COUNT) ||
+        (quickField >= 100 && quickField <= 107);
+    if (configField && !sprayer_configuration_edit_allowed()) {
+        close_quick_input();
+        quick_settings_refresh();
+        return;
+    }
+    if (bench_test_active()) return;
     const int key=(int)(intptr_t)lv_event_get_user_data(e);
     size_t len=strlen(quickEntry);
     if (key==-1) { if (len) quickEntry[--len]=0; }
@@ -1492,6 +1532,15 @@ static void quick_open_input_cb(lv_event_t *e)
     close_quick_input();
     quickField=(int)(intptr_t)lv_event_get_user_data(e);
     if(quickField<0 || (quickField>SECTION_COUNT+2 && (quickField<100||quickField>107)))return;
+    const bool configField =
+        (quickField >= 0 && quickField < SECTION_COUNT) ||
+        (quickField >= 100 && quickField <= 107);
+    if (configField && !sprayer_configuration_edit_allowed()) {
+        quickStatus = "Edycja zablokowana: wylacz sekcje, rozbroj AUTO i zatrzymaj zawor.";
+        quickStatusUntil = millis() + 3000;
+        quick_settings_refresh();
+        return;
+    }
     if(quickField==101&&nozzleDraft.nozzle==1&&nozzleDraft.liquid!=4)return;
     quickModal=panel(lv_layer_top(),110,62,804,460,C_GREEN());
     home_text(quickModal,quickField==100 ? (nozzleDraft.nozzle ? "WYDATEK JEDNEJ KONCOWKI - RSM PRZY 3 bar" : "WYDATEK JEDNEJ KONCOWKI - WODA PRZY 3 bar") : quickField==101 ? "GESTOSC CIECZY (kg/L)" : quickField>=102 ? "LICZBA KONCOWEK NA SEKCJI" : quickField==SECTION_COUNT+1 ? "USTAW AKTUALNA ILOSC W ZBIORNIKU (L)" : quickField==SECTION_COUNT+2 ? "DOLEJ DO ZBIORNIKA (L)" : quickField==SECTION_COUNT ? "DAWKA ZADANA (L/ha)" : "SZEROKOSC SEKCJI (m)",24,20,C_TEXT(),&home_font_24);
@@ -1517,7 +1566,10 @@ static void quick_open_input_cb(lv_event_t *e)
 }
 static void quick_width_step_cb(lv_event_t *e)
 {
-    if(bench_test_active())return;
+    if(!sprayer_configuration_edit_allowed()) {
+        quick_settings_refresh();
+        return;
+    }
     const int code=(int)(intptr_t)lv_event_get_user_data(e);
     const int i=abs(code)-1;if(i<0 || i>=SECTION_COUNT)return;
     quickField=i;
@@ -1526,7 +1578,10 @@ static void quick_width_step_cb(lv_event_t *e)
 }
 static void quick_save_cb(lv_event_t *)
 {
-    if(bench_test_active())return;
+    if(!sprayer_configuration_edit_allowed()) {
+        quick_settings_refresh();
+        return;
+    }
     bool ok=sectionPrefs.begin("agrosec",false);
     if(ok) {
         for(int i=0;i<SECTION_COUNT;++i) {
@@ -1659,14 +1714,19 @@ static void nozzle_editor_refresh(){
         set_label_text_if_changed(nozzleValues[i],b);
     }
     int n=0;for(auto count:nozzleDraft.counts)n+=count;
-    if(nozzle_profile_fault())
+    if (!sprayer_configuration_edit_allowed())
+        snprintf(b,sizeof(b),"EDYCJA ZABLOKOWANA - zatrzymaj sekcje, regulator i zawor");
+    else if(nozzle_profile_fault())
         snprintf(b,sizeof(b),"BLAD ZAPISANEGO PROFILU - wybierz dysze i ciecz, a nastepnie ZAPISZ");
     else
         snprintf(b,sizeof(b),"%s | %d koncowek | Przy 3 bar: %.2f L/min na koncowke",nozzleDirty?"NIEZAPISANE":"ZAPISANE",n,nozzle_flow(3,nozzleDraft));
     set_label_text_if_changed(nozzleMessage,b);
 }
 static void nozzle_cycle_cb(lv_event_t *e){
-    if(bench_test_active())return;
+    if(!sprayer_configuration_edit_allowed()) {
+        nozzle_editor_refresh();
+        return;
+    }
     const float rho[]={1,1.28f,1.30f,1.32f};
     if((intptr_t)lv_event_get_user_data(e)==0){
         nozzleDraft.nozzle^=1;
@@ -1682,12 +1742,16 @@ static void nozzle_cycle_cb(lv_event_t *e){
     nozzleDirty=true;nozzle_editor_refresh();
 }
 static void nozzle_save_cb(lv_event_t *){
+    if (!sprayer_configuration_edit_allowed()) {
+        set_label_text_if_changed(nozzleMessage,"ZAPIS ZABLOKOWANY - zatrzymaj sekcje, regulator i zawor.");
+        return;
+    }
     if(nozzle_save(nozzleDraft)){nozzleDirty=false;nozzle_editor_refresh();ui_update();}
     else set_label_text_if_changed(nozzleMessage,"BLAD ZAPISU - ustawienia nie zostaly zastosowane.");
 }
 static void nozzle_cancel_cb(lv_event_t *){nozzleDraft=nozzle_settings();nozzleDirty=false;nozzle_editor_refresh();}
 static void nozzle_open_cb(lv_event_t *){
-    if(bench_test_active())return;
+    if(!sprayer_configuration_edit_allowed())return;
     release_detail_editors();nozzleDraft=nozzle_settings();nozzleDirty=false;
     lv_obj_set_hidden(detailMsg,true);lv_obj_set_hidden(detailMsg2,true);
     set_label_text_if_changed(lblSettingsDetailTitle,"KONCOWKI I CIECZ - EDYCJA");
