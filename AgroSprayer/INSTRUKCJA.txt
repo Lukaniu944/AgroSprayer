@@ -1,32 +1,40 @@
-AgroSprayer - koncowki i ciecz / model cisnieniowy
+AgroSprayer - koncowki, ciecz i regulator cisnienia
+
+STATUS
+Ta galaz i jej artefakty sa BENCH-ONLY. Nie uzywac do oprysku w polu przed kontrolowanymi testami fizycznego ESP32-S3, czujnika, sterownika silnika, zaworu, krancowek i hydrauliki.
 
 INSTALACJA
-To pelny projekt. Rozpakuj i otworz AgroSprayer.ino z folderu AgroSprayer. Szczegoly instalacji w README.txt.
+To pelny projekt. Otworz AgroSprayer.ino z folderu AgroSprayer. Szczegoly instalacji sa w README.txt.
 
-OBSLUGA
-Ustawienia -> KONCOWKI I CIECZ lub przycisk profilu na gorze ekranu glownego.
-KONCOWKA: przelacza 11003 / 04RSM.
-CIECZ: WODA / RSM 28 / RSM 30 / RSM 32 / WLASNA.
-Dotknij wydatku, gestosci lub liczby koncowek, aby wpisac nowa wartosc.
-ZAPISZ zapisuje do pamieci ESP32. COFNIJ ZMIANY przywraca ostatni zapis. Wyjscie z panelu odrzuca niezapisane zmiany.
-Domyslnie: 11003, WODA, 5/8/8/8/8/5 koncowek. Dla nawozu wybierz 04RSM oraz odpowiedni RSM i zapisz.
-Wydatek kalibracyjny dotyczy zawsze WODY przy 3 bar, na JEDNA koncowke. Domyslnie 11003=1.18 L/min, 04RSM=1.54 L/min. Pomiaru RSM nie wpisuj w to pole.
-Zmiana gestosci recznie ustawia profil WLASNA. RSM 28/30/32: 1.28/1.30/1.32 kg/L. Przeplyw = wydatek wody / sqrt(gestosc wzgledem wody). To uwzglednia gestosc jeden raz.
+OBSLUGA PROFILI
+Ustawienia -> KONCOWKI I CIECZ lub przycisk profilu na ekranie glownym.
+KONCOWKA: 11003 albo 04RSM.
+CIECZ: WODA / RSM 28 / RSM 30 / RSM 32 / WLASNA (kombinacje ograniczone do obslugiwanych profili).
+ZAPISZ zapisuje profil do NVS. Nieprawidlowy, nieczytelny lub niejednoznaczny stary profil blokuje obliczenia do czasu jawnego wyboru i zapisu.
+Stary profil 04RSM oznaczony jako WODA jest niejednoznaczny i nie jest automatycznie zamieniany na RSM 28.
 
-LICZENIE
-Tabele wody sa z przeslanych zdjec; interpolacja kwadratu wydatku, osobna korekta kalibracji kazdego profilu. 11003 zakres tabeli 2-4 bar; 04RSM 2-6 bar. Obecny czujnik 80 psi ma zakres ok. 5.5 bar; wyzszy cel jest oznaczony jako poza zakresem.
-Przy cisnieniu 0-0.1 bar wydatek wynosi zero. Pomiedzy 0.1 a 2 bar lub powyzej tabeli obliczenie jest niewazne. Nie ekstrapolujemy dawki poza tabele.
-Wartosci dawki, wydatku, zuzycia i pozostalej cieczy sa OBLICZONE z cisnienia i komend sekcji, nie sa pomiarem wyplywu z dysz. Zakladaja otwarcie sekcji zgodne z komendami i sprawne dysze. Wymagaja kalibracji wydatku i pomiaru cisnienia reprezentatywnego dla koncowek.
-Brak aktualnych danych sekcji AOG, blad czujnika lub cisnienie poza tabela wstrzymuja zliczanie. Dane AOG starsze niz 1.5 s sa niewazne. Przerwy petli powyzej 2 s sa pomijane. Symulacja nie zuzywa rzeczywistego zbiornika.
-Wydatek i zuzycie przy zamknietych wszystkich sekcjach wynosza zero niezaleznie od obiegu powrotnego.
-Zliczanie zuzycia przy otwartych sekcjach dziala rowniez na postoju. Dawka L/ha wymaga predkosci i aktywnej szerokosci.
-Po aktualizacji USTAW PONOWNIE ILOSC W ZBIORNIKU i rozpocznij NOWY ZABIEG: stare liczniki impulsowe nie sa mieszane z nowym modelem. Zapis okresowy pozostaje co 60 s.
-Przeplywomierz nie jest inicjalizowany ani odczytywany w petli; jego stare pliki moga pozostac w projekcie.
+Tabele wydatku na JEDNA koncowke:
+WODA / niebieska 11003:
+2.0 bar = 0.96; 2.5 bar = 1.08; 3.0 bar = 1.18; 3.5 bar = 1.27; 4.0 bar = 1.39 L/min.
+RSM / czerwona 04RSM:
+2.0 bar = 1.26; 3.0 bar = 1.54; 4.0 bar = 1.78; 5.0 bar = 1.99; 6.0 bar = 2.18 L/min.
 
-STEROWANIE
-Ta aktualizacja zachowuje profile, edycje, obliczenia i cel cisnienia. Dodano osobno wlaczana regulacje cisnienia zaworem 12 V (L298N): Ustawienia -> CISNIENIE / REGULATOR -> AUTO REG: WLACZ. Bez nacisniecia tego przycisku i po kazdym restarcie silnik pozostaje w trybie dotychczasowym. AUTO sekcji AgOpenGPS NIE uruchamia regulatora.
-Regulator wymaga aktualnych danych AOG, AUTO sekcji, minimum 0.5 bar na czujniku, otwartych sekcji, predkosci, prawidlowego celu 2.0-4.8 bar i sprawdzonego kierunku silnika. Uzywa impulsow maks. 250 ms i przerw po ruchu. Przy cisnieniu >= 5 bar, utracie AOG/czujnika, braku reakcji lub odwrotnej reakcji przechodzi w STOP i wymaga ponownego wlaczenia. Przy zamknietych sekcjach nie porusza zaworem.
-Przed wlaczeniem sprawdz recznie przy odlaczonym oprysku kierunek A/B: otwarcie obejscia MUSI zmniejszac cisnienie, zamkniecie obejscia MUSI je podnosic. Sprawdz dzialanie STOP i krancowek oraz zapewnij mozliwosc fizycznego odciecia zasilania silnika. Nie uzywaj regulacji na polu bez testu hydraulicznego i kalibracji rozpylaczy. Symulacja w panelu TEST NA BIURKU nie napedza silnika.
+Q3 to kalibracja jednej koncowki przy 3 bar dla wybranej koncowki i modelu cieczy. Domyslnie: 11003/WODA = 1.18 L/min; 04RSM/RSM = 1.54 L/min. W panelu pole jest opisane jako WODA lub RSM zalezne od koncowki.
+RSM 28/30/32 maja gestosci ok. 1.28/1.30/1.32 kg/L. Wspolczynniki sqrt(1.28)=1.13 i sqrt(1.32)=1.15 sa bezwymiarowe. Korekta gestosci jest stosowana jeden raz, gdy do RSM uzywana jest wodna tabela 11003. Tabela 04RSM jest podana jako bezposredni wydatek RSM i NIE wolno dzielic jej ponownie przez 1.13 lub 1.15. Dla WLASNA podaj rzeczywista gestosc i wykonaj kalibracje Q3 dla wybranej koncowki.
+
+ZAKRES I OBLICZENIA
+11003: tabela 2-4 bar. AUTO cel maksymalny 4.0 bar.
+04RSM: tabela wydatku 2-6 bar; AUTO cel maksymalny 4.8 bar. Dane tabeli powyzej 4.8 bar sluza tylko do obliczen/odniesienia, nie sa pozwoleniem na taki cel regulatora.
+Czujnik 0-80 psi ma nominalny zakres ok. 5.52 bar. Programowy trip surowego cisnienia jest ustawiony na >=4.9 bar. Nie ekstrapolujemy poza tabele. Przy 0-0.1 bar wydatek wynosi zero; pomiedzy 0.1 a dolnym punktem tabeli lub powyzej tabeli obliczenie jest niewazne.
+Litry, przeplyw, dawka i pozostala ciecz sa ESTYMOWANE z cisnienia, profilu dyszy, liczby czynnych koncowek i komend sekcji. Nie sa pomiarem przeplywu. Przeplywomierz nie jest uzywany; obieg powrotny pompy nie jest traktowany jako wydatek na belke.
+Szesci sekcji belki sa sterowane przez AgOpenGPS. Model zaklada zgodnosc komend sekcji z rzeczywistym otwarciem zaworow. Nie ma potwierdzenia polozenia zaworow sekcyjnych. Przy braku swiezych danych AOG, bledzie czujnika lub cisnieniu poza tabela zliczanie jest wstrzymywane.
+
+REGULATOR I ZAWOR 12 V
+Regulator cisnienia jest wlaczany osobno w Ustawienia -> CISNIENIE / REGULATOR. AUTO sekcji AgOpenGPS samo nie uzbraja regulatora. Po restarcie regulator pozostaje rozbrojony.
+Impulsy AUTO sa ograniczone do 50-250 ms; sterownik zachowuje przerwe po impulsie i 100 ms dead-time. STOP uniewaznia token AUTO. Stare polecenie nie moze ponownie uzbroic automatu.
+Niezalezny watchdog sterownika zaworu sprawdza waznosc czujnika i zatrzaskowy trip. Utrata/nieprawidlowy sygnal czujnika lub surowe cisnienie >=4.9 bar wymusza oba wejscia mostka L298N w stan niski, zatrzymuje ruch i rozbraja naped. Trip nadcisnienia jest zatrzaskowy do restartu. Watchdog sprawdza stan co 10 ms, ale nowy pomiar ADS1115 jest odswiezany co ok. 100 ms; nie oznacza to analogowego odciecia ani gwarancji reakcji w 10 ms od fizycznego wzrostu cisnienia.
+L298N nie jest niezaleznym zabezpieczeniem hydraulicznym. Zapewnij fizyczny wylacznik/odciecie zasilania silnika i odpowiednie zabezpieczenie nadpradowe. Sprawdz krancowki i kierunek A/B przy odlaczonym oprysku: OTWORZ obejscie ma obnizac cisnienie, ZAMKNIJ ma je podnosic. Najpierw wykonaj test bez cisnienia, nastepnie kontrolowany test hydrauliczny z manometrem i mozliwoscia natychmiastowego odciecia zasilania.
+Przy zamknietych sekcjach regulator nie powinien poruszac zaworem. Nie uruchamiaj regulatora w polu przed przejsciem wszystkich testow stanowiskowych i hydraulicznych.
 
 WERYFIKACJA
-Kompilacja UI z rzeczywistym LVGL 9.6 na komputerze oraz testy obliczen: charakterystyki, gestosc, cisnienie zadane, liczby dysz, zapis/blad zapisu, klawiatura, liczniki, brak czujnika, timeout AOG, symulacja. To nie jest pelna kompilacja Arduino/ESP32 ani proba hydrauliczna.
+Testy natywne C++ sprawdzaja logike regulatora, konwersje ADS1115, prog trip 4.9 bar, permit AUTO/STOP, tabele dysz, migracje profili i liczniki sekcji. Kompilacja ESP32-S3 z Arduino ESP32 Core 3.3.12 i LVGL 9.6.0 nie zastepuje testu fizycznego.

@@ -19,7 +19,9 @@ struct Input {
     bool autoMode = false;
     bool connected = false;
     bool sensorValid = false;
+    bool pressureTrip = false;
     bool driverReady = false;
+    bool driverCanPulse = true;
     bool benchMode = false;
     bool sectionsOpen = false;
     bool motorMoving = false;
@@ -31,7 +33,6 @@ struct Input {
     uint32_t tolerancePercent = 5;
 };
 struct Action {
-    // Logical +1 = OPEN bypass, -1 = CLOSE bypass.
     int direction = 0;
     uint32_t pulseMs = 0;
     bool stopMotor = false;
@@ -50,7 +51,7 @@ class Controller {
         expectedSign_ = unanswered_ = 0;
     }
     bool validBasic(const Input &in) const {
-        return in.autoMode && in.connected && in.sensorValid &&
+        return in.autoMode && in.connected && in.sensorValid && !in.pressureTrip &&
                in.driverReady && !in.benchMode &&
                std::isfinite(in.pressureBar) && in.pressureBar >= 0.5f &&
                in.pressureBar < 5.0f;
@@ -98,6 +99,11 @@ public:
             return out;
         }
         lastTick_ = in.now;
+        if (in.pressureTrip) {
+            fault("STOP: NAD CISNIENIE");
+            out.stopMotor = true;
+            return out;
+        }
         if (!validBasic(in)) {
             fault("STOP: AOG / CZUJNIK / TRYB / CISNIENIE");
             out.stopMotor = true;
@@ -109,9 +115,6 @@ public:
             return out;
         }
         if (!in.sectionsOpen || in.speedX10 <= 0) {
-            // An undefined target is normal when every section is closed or
-            // the tractor is stationary. Pause safely without a motor pulse;
-            // keep link, sensor and pressure faults fatal (checked above).
             status_ = "CZEKAM NA SEKCJE";
             resumePending_ = true;
             resumeDelay_ = false;
@@ -121,7 +124,6 @@ public:
             return out;
         }
         if (!validTarget(in)) {
-            // Once spraying resumes, an invalid target is always a fault.
             fault("STOP: CEL CISNIENIA POZA ZAKRESEM");
             out.stopMotor = true;
             return out;
@@ -144,8 +146,6 @@ public:
         if (std::fabs(error) <= tolerance) {
             status_ = "W CELU";
             expectedSign_ = unanswered_ = 0;
-            // Do not finish an in-flight pulse after pressure reaches target.
-            // The motor watchdog is a fallback; stop as soon as safe pressure is seen.
             out.stopMotor = in.motorMoving;
             return out;
         }
@@ -157,6 +157,10 @@ public:
         if (lastPulse_ &&
             (uint32_t)(in.now-lastPulse_) < pulse + in.pauseMs) {
             status_ = "PRZERWA PO IMPULSIE";
+            return out;
+        }
+        if (!in.driverCanPulse) {
+            status_ = "OCZEKUJE NA STEROWNIK";
             return out;
         }
         const int desiredSign = error > 0 ? 1 : -1;
@@ -177,8 +181,6 @@ public:
         } else {
             unanswered_ = 0;
         }
-        // This motor drives the Bypass: closing raises spray pressure.
-        // The existing A/B direction swap must first be checked by operator.
         out.direction = desiredSign > 0 ? -1 : 1;
         out.pulseMs = pulse >= 50 ? pulse : 50;
         lastPulse_ = in.now;
