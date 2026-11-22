@@ -42,7 +42,7 @@ void IRAM_ATTR flow_isr()
     const uint32_t nowUs = (uint32_t)esp_timer_get_time();
     portENTER_CRITICAL_ISR(&s_flowMux);
     if (!s_haveEdge || (uint32_t)(nowUs-s_lastEdgeUs)>=FLOW_MIN_EDGE_US) {
-        ++s_pulses;
+        s_pulses = s_pulses + 1U;
         s_lastEdgeUs=nowUs;
         s_haveEdge=true;
     }
