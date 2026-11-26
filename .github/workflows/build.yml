@@ -9,7 +9,7 @@ jobs:
   pressure-logic:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Native C++17 regulator, sensor, nozzle and volume tests (no ESP32 hardware)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_pressure_control.cpp -o /tmp/agrosprayer-pressure-test
@@ -32,7 +32,7 @@ jobs:
     needs: pressure-logic
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: arduino/setup-arduino-cli@v2
       - name: Install ESP32-S3 core and LVGL
         run: |
@@ -46,7 +46,7 @@ jobs:
             --build-property 'compiler.c.extra_flags=-DLV_CONF_SKIP -DLV_FONT_MONTSERRAT_16=1 -DLV_FONT_MONTSERRAT_20=1 -DLV_FONT_MONTSERRAT_24=1 -DLV_FONT_MONTSERRAT_28=1' \
             --warnings all --output-dir dist AgroSprayer
       - name: Save firmware binary for bench testing
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: AgroSprayer-ESP32S3-BENCH-ONLY
           path: dist/*.bin
