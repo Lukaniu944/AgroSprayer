@@ -47,8 +47,7 @@ esp_lcd_panel_handle_t lcd_begin()
     // DMA burst 64 B - stabilne ustawienie dla RGB/PSRAM.
     cfg.dma_burst_size = 64;
 
-    cfg.sram_trans_align = 64;
-    cfg.psram_trans_align = 64;
+    // ESP-IDF: dma_burst_size zastępuje przestarzałe pola *_trans_align.
 
     cfg.hsync_gpio_num = LCD_GPIO_HSYNC;
     cfg.vsync_gpio_num = LCD_GPIO_VSYNC;

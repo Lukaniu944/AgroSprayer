@@ -24,7 +24,9 @@ agroreg::Input snapshot() {
                   gState.rxPackets != 0 &&
                   (uint32_t)(s.now-gState.lastAogMs) <= AOG_TIMEOUT_MS;
     s.sensorValid = pressure_sensor_valid();
+    s.pressureTrip = pressure_sensor_overpressure();
     s.driverReady = valve_test_ready();
+    s.driverCanPulse = valve_auto_pulse_ready();
     s.benchMode = bench_test_active();
     // Manual diagnostic UNLOCK is also an interlock against automatic arming.
     s.motorMoving = valve_test_direction() != 0 || valve_test_armed();
@@ -52,8 +54,6 @@ void auto_regulator_stop() {
     valve_test_stop();
 }
 void auto_regulator_update() {
-    // Capture the STOP epoch before processing; stale pulses are rejected by the driver.
-    const uint32_t generation = valve_auto_generation();
     if (requestStop.exchange(false,std::memory_order_acq_rel)) {
         controller.disarm();
         shownStatus.store(controller.status(),std::memory_order_release);
@@ -63,21 +63,25 @@ void auto_regulator_update() {
             controller.disarm();
             valve_test_stop();
         } else {
-            controller.arm(snapshot());
+            // STOP between token capture and permit arm invalidates this attempt.
+            const uint32_t armGeneration = valve_auto_generation();
+            if (!requestStop.load(std::memory_order_acquire) &&
+                controller.arm(snapshot())) {
+                if (!valve_auto_arm(armGeneration)) controller.disarm();
+            }
         }
     }
     const agroreg::Input s=snapshot();
     const agroreg::Action a=controller.step(s);
-    if (a.stopMotor) valve_test_stop();
+    if (a.stopMotor) {
+        if (controller.armed()) valve_auto_pause();
+        else valve_test_stop();
+    }
     if (a.direction) {
-        if (!valve_auto_pulse(a.direction,a.pulseMs,generation)) {
-            if (generation != valve_auto_generation()) {
-                // A concurrent operator STOP already disabled the outputs.
-                controller.disarm();
-            } else {
-                controller.driverFailed();
-                valve_test_stop();
-            }
+        if (!valve_auto_pulse(a.direction,a.pulseMs)) {
+            if (requestStop.load(std::memory_order_acquire)) controller.disarm();
+            else controller.driverFailed();
+            valve_test_stop();
         }
     }
     enabled.store(controller.armed(),std::memory_order_release);

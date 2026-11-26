@@ -1,4 +1,5 @@
 #include "sprayer_state.h"
+#include "configuration_interlock.h"
 #include "ui.h"
 #include <atomic>
 #include "valve_test.h"
@@ -25,7 +26,8 @@ void regulator_settings_load() {
     if(read==sizeof(candidate) && valid_regulator_settings(candidate))s_regulator=candidate;
 }
 bool regulator_settings_save(const RegulatorSettings &v) {
-    if(!valid_regulator_settings(v))return false;
+    // Enforce the interlock at the persistence boundary, not only in LVGL.
+    if(!sprayer_configuration_edit_allowed() || !valid_regulator_settings(v))return false;
     Preferences prefs;
     if(!prefs.begin("agroreg",false))return false;
     const size_t written=prefs.putBytes("settings",&v,sizeof(v));
